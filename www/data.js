@@ -13,7 +13,7 @@ const WORLD={
     {id:"c_redvale",name:"Redvale",duchy:"d_east",status:"rival",dev:6,tax:1.7,garrison:140,levy:190,x:395,y:250,points:"350,190 404,117 505,174 525,276 445,322",barony:"Redvale Keep",fort:2,terrain:"hills"},
     {id:"c_highmoor",name:"Highmoor",duchy:"d_east",status:"neutral",dev:5,tax:1.3,garrison:100,levy:140,x:244,y:285,points:"222,280 350,190 445,322 365,392 235,352",barony:"Highmoor Fort",fort:2,terrain:"mountains"},
     {id:"c_goldcoast",name:"Gold Coast",duchy:"d_gold",status:"neutral",dev:11,tax:4.8,garrison:360,levy:500,x:585,y:245,points:"505,174 583,114 696,153 709,283 615,322 525,276",barony:"Goldport",fort:3,terrain:"coast"},
-    {id:"c_eastmere",name:"Eastmere",duchy:"d_gold",status:"neutral",dev:4,tax:.9,garrison:70,levy:90,x:575,y:370,points:"615,322 709,283 720,430 545,430",barony:"Eastmere Manor",fort:1,terrain:"plains"}
+    {id:"c_eastmere",name:"Eastmere",duchy:"d_gold",status:"neutral",dev:4,tax:.9,garrison:70,levy:90,x:575,y:370,points:"615,322 709,283 720,430 545,430",barony:"Eastmere Manor",fort:1,terrain:"coast"}
   ],
   characters:{
     c_edric:{id:"c_edric",name:"Duke Edric Vael",age:32,sex:"m",dynasty:"House Vael",title:"Duke of the Northern Marches",martial:8,diplomacy:13,stewardship:10,intrigue:6,learning:7,traits:["Patient","Diplomat","Frugal"],opinion:100,alive:true,spouse:"c_mara",father:null,mother:null,children:["c_alina","c_rowan"],health:100,fertility:.8},

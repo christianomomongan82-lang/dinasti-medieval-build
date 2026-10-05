@@ -9,7 +9,7 @@ function freshState(){
   return {version:3,year:1066,month:9,day:3,paused:false,speed:1,selectedCounty:"c_northwatch",
     gold:72,prestige:85,piety:40,legitimacy:78,stress:18,levies:1280,troopCap:1900,
     succession:"male_preference",crownAuthority:"low",culture:"Arvendic",faith:"Old Church",
-    rulerId:"c_edric",heirId:"c_alina",claimCounty:null,
+    rulerId:"c_edric",heirId:"c_rowan",claimCounty:null,
     council:{chancellor:"c_mara",marshal:"c_bren",steward:"c_elira",spymaster:"c_merek",chaplain:"c_sera"},
     relations:{c_bren:61,c_elira:74,c_roderic:-24,c_merek:-10,c_sera:18,c_alden:25,c_hadrik:42},
     marriages:[],children:["c_alina","c_rowan"],titles:{ownedDuchies:["d_north"],kingdom:"k_arvend"},
@@ -90,16 +90,16 @@ function renderFactions(){
 function renderWar(){
   if(!S.war){$("warCard").innerHTML="<div class='empty'>No active war. Select a rival county and declare war.</div>";return}
   const t=county(S.war.target),bar=Math.max(-100,Math.min(100,S.war.score));
-  $("warCard").innerHTML="<div class='war-title'><div><span class='eyebrow'>ACTIVE WAR</span><h3>Conquest of "+esc(t.name)+"</h3></div><b>"+bar+"%</b></div><div class='bar'><i style='width:"+((bar+100)/2)+"%'></i></div><div class='war-grid'><div><span>Army</span><b>"+Math.floor(S.armies[0].men)+"</b></div><div><span>Defender</span><b>"+(t.levy+t.garrison)+"</b></div><div><span>Duration</span><b>"+S.war.months+" mo</b></div></div><div class='action-grid'><button class='action-btn' data-action='battle'><b>Force Battle</b><span>Use army to gain warscore</span></button><button class='action-btn' data-action='negotiate'><b>Peace / Surrender</b><span>Resolve the war</span></button></div>";
+  $("warCard").innerHTML="<div class='war-title'><div><span class='eyebrow'>ACTIVE WAR</span><h3>Conquest of "+esc(t.name)+"</h3></div><b>"+bar+"%</b></div><div class='bar'><i style='width:"+((bar+100)/2)+"%'></i></div><div class='war-grid'><div><span>Army</span><b>"+Math.floor(S.armies[0].men)+"</b></div><div><span>Defender</span><b>"+(t.levy+t.garrison)+"</b></div><div><span>Duration</span><b>"+S.war.months+" mo</b></div><div><span>Siege</span><b>"+Math.round(S.war.siege)+"%</b></div></div><div class='action-grid'><button class='action-btn' data-action='battle'><b>Force Battle</b><span>Use army to gain warscore</span></button><button class='action-btn' data-action='negotiate'><b>Peace / Surrender</b><span>Resolve the war</span></button></div>";
   document.querySelectorAll("#warCard [data-action]").forEach(b=>b.onclick=()=>action(b.dataset.action))
 }
-function renderArmy(){const a=S.armies[0];$("armyCard").innerHTML="<div class='army-row'><div><b>"+esc(a.name)+"</b><span>Commander: "+esc(char(a.commander)?.name||"None")+" · "+esc(county(a.location)?.name||"Unknown")+"</span></div><strong>"+Math.floor(a.men)+"</strong></div><div class='army-details'><div><span>Levy</span><b>"+a.levy+"</b></div><div><span>Men-at-Arms</span><b>"+a.menAtArms+"</b></div><div><span>Morale</span><b>"+Math.round(a.morale)+"%</b></div></div>"}
+function renderArmy(){const a=S.armies[0];$("armyCard").innerHTML="<div class='army-row'><div><b>"+esc(a.name)+"</b><span>Commander: "+esc(char(a.commander)?.name||"None")+" · "+esc(county(a.location)?.name||"Unknown")+"</span></div><strong>"+Math.floor(a.men)+"</strong></div><div class='army-details'><div><span>Levy</span><b>"+a.levy+"</b></div><div><span>Men-at-Arms</span><b>"+a.menAtArms+"</b></div><div><span>Morale</span><b>"+Math.round(a.morale)+"%</b></div></div><button id="marshalBtn" class="action-btn"><b>Appoint Marshal</b><span>Put the council marshal in command</span></button>";$("marshalBtn").onclick=()=>action("marshal")}
 function renderEvents(){$("events").innerHTML=S.events.map(e=>"<div class='event'><i class='event-dot "+esc(e.kind)+"'></i><div><p>"+esc(e.text)+"</p><time>"+esc(e.when)+"</time></div></div>").join("")}
 function render(){renderTop();renderMap();renderTitles();renderSelected();renderRuler();renderRealm();renderCourt();renderDynasty();renderFactions();renderWar();renderArmy();renderEvents()}
 
 function chooseHeir(){
   const fam=Object.values(WORLD.characters).filter(c=>c.alive&&c.dynasty===ruler().dynasty&&c.id!==ruler().id);
-  const males=fam.filter(c=>c.sex==="m").sort((a,b)=>a.age-b.age),all=fam.sort((a,b)=>a.age-b.age);
+  const males=fam.filter(c=>c.sex==="m").sort((a,b)=>b.age-a.age),all=fam.sort((a,b)=>b.age-a.age);
   return S.succession==="male_preference"&&males[0]?males[0].id:(all[0]?.id||null)
 }
 function possibleChildId(){
@@ -138,6 +138,7 @@ function action(a){
   const c=county(S.selectedCounty),h=char(c.holder);
   if(a==="develop"){if(S.gold<25)return toast("Not enough gold");S.gold-=25;c.dev++;c.tax+=.35;log(c.name+" developed to level "+c.dev)}
   else if(a==="levy"){if(S.gold<12)return toast("Not enough gold");raiseLevies();log("The marshal raised additional levies from "+c.name,"war")}
+  else if(a==="marshal"){const id=S.council.marshal;if(!char(id))return toast("No marshal available");S.armies[0].commander=id;log(char(id).name+" is now commanding the Northern Host.","war");toast("Commander appointed")}
   else if(a==="extax"){S.gold+=12;S.stress+=5;log("Extraordinary tax was imposed in "+c.name,"court")}
   else if(a==="grant"){grantTitle()}
   else if(a==="revoke"){revokeTitle()}
@@ -147,11 +148,11 @@ function action(a){
   else if(a==="marry"){S.prestige+=10;S.legitimacy=Math.min(100,S.legitimacy+2);S.marriages.push({a:S.rulerId,b:h.id,year:S.year});log("A dynastic marriage was proposed to "+h.name,"dynasty")}
   else if(a==="invite"){S.relations[h.id]=Math.min(100,opinion(h.id)+10);log(h.name+" was invited to court")}
   else if(a==="inspect"){toast(h.name+" fields roughly "+c.levy+" levies in "+c.name);return}
-  else if(a==="war"){if(S.war)return toast("Already at war");if(c.status!=="rival")return toast("That county is not hostile");if(S.levies<700)return toast("Need at least 700 levies");S.war={target:c.id,score:0,months:0};log("War declared on "+h.name+" for "+c.name,"war")}
+  else if(a==="war"){if(S.war)return toast("Already at war");if(c.status!=="rival")return toast("That county is not hostile");if(S.levies<700)return toast("Need at least 700 levies");S.war={target:c.id,score:0,months:0,siege:0};log("War declared on "+h.name+" for "+c.name,"war")}
   else if(a==="battle"){
     if(!S.war)return;const t=county(S.war.target),def=t.levy+t.garrison,atk=Math.max(1,S.armies[0].men),ratio=atk/Math.max(1,def),loss=Math.max(45,Math.floor(def*(ratio>.95?.10:.18)));
     S.levies=Math.max(0,S.levies-loss);S.armies[0].men=Math.max(0,S.armies[0].men-loss);S.armies[0].morale=Math.max(0,S.armies[0].morale-(ratio>.9?5:16));
-    if(ratio>.9){S.war.score+=18+Math.floor(Math.random()*16);log("Battle won near "+t.name+".","war");toast("Victory")}else{S.war.score-=12;log("The army was repulsed at "+t.name+".","war");toast("Defeat")}
+    if(ratio>.9){S.war.score+=18+Math.floor(Math.random()*16);S.war.siege=Math.min(100,S.war.siege+12);log("Battle won near "+t.name+".","war");toast("Victory")}else{S.war.score-=12;log("The army was repulsed at "+t.name+".","war");toast("Defeat")}
   }else if(a==="negotiate"){
     if(!S.war)return;const t=county(S.war.target);
     if(S.war.score>=60){t.status="yours";t.holder=S.rulerId;S.prestige+=50;S.legitimacy+=5;log("The enemy surrendered "+t.name+".","war");S.war=null;S.claimCounty=null;toast("War won")}

@@ -47,7 +47,7 @@ function load(){
   try{
     const raw=localStorage.getItem(KEY)||localStorage.getItem("dynasty_realms_save_v03")||localStorage.getItem("dynasty_realms_save_v02");
     if(!raw)return null;
-    const x=JSON.parse(raw),n=freshState();Object.assign(n,x,{version:5});
+    const x=JSON.parse(raw),n=freshState();Object.assign(n,x,{version:6});
     n.events=Array.isArray(n.events)?n.events:n.events||[];
     n.claims=Array.isArray(n.claims)?n.claims:(x.claimCounty?[x.claimCounty]:[]);
     n.alliances=Array.isArray(n.alliances)?n.alliances:[];
@@ -118,7 +118,7 @@ applyWorldState();normalizeDiplomacy();rebuildHeir();
 
 function saveSilent(){syncWorldState();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
 function save(){saveSilent();toast("Game saved")}
-function reset(){localStorage.removeItem(KEY);localStorage.removeItem("dynasty_realms_save_v03");localStorage.removeItem("dynasty_realms_save_v02");location.reload()}
+function reset(){localStorage.removeItem(KEY);localStorage.removeItem("dynasty_realms_save_v05");localStorage.removeItem("dynasty_realms_save_v03");localStorage.removeItem("dynasty_realms_save_v02");location.reload()}
 function toast(msg){const t=$("toast");t.textContent=msg;t.classList.add("show");clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove("show"),1700)}
 function log(text,kind="court"){S.events.unshift({text,when:"Now",kind});S.events=S.events.slice(0,16)}
 function ruler(){return char(S.rulerId)}
@@ -230,7 +230,7 @@ function processCouncilTasks(){
     if(role==="chancellor"){const v=directVassalCharacters().sort((a,b)=>opinion(a.id)-opinion(b.id))[0];if(v){S.relations[v.id]=clamp(opinion(v.id)+20,-100,100);log("The chancellor reconciled with "+v.name+".","court")}}
     else if(role==="marshal"){recruitTroops(180,false);log("The marshal completed levy preparations. +180 troops.","war")}
     else if(role==="steward"){S.gold+=25;log("The steward recovered overdue taxes. +25 gold.","court")}
-    else if(role==="spymaster"){const e=WORLD.counties.filter(c=>c.status==="rival"),t=pick(e);if(t){S.claimCounty=t.id;log("Evidence strengthened your claim on "+t.name+".","court")}}
+    else if(role==="spymaster"){const e=WORLD.counties.filter(c=>c.status==="rival"),t=pick(e);if(t){if(!S.claims.includes(t.id))S.claims.push(t.id);S.claimCounty=t.id;log("Evidence strengthened your claim on "+t.name+".","court")}}
     else{S.piety+=25;S.legitimacy=clamp(S.legitimacy+2,0,100);log("The chaplain completed a religious study. +25 piety.","dynasty")}
   });
 }
@@ -400,7 +400,7 @@ function endWar(w,result){
     if(result==="concession"){w.rebels.forEach(id=>S.relations[id]=clamp(opinion(id)+30,-100,100));}
     else if(result==="defeat"){w.rebels.forEach(id=>{S.relations[id]=Math.max(-100,opinion(id)-25);const c=WORLD.counties.find(x=>x.holder===id);if(c)c.control=55})}
   }else if(t&&result==="victory"){
-    t.status="yours";setTitleHolder(t.id,S.rulerId);S.prestige+=50;S.legitimacy=clamp(S.legitimacy+5,0,100);S.claimCounty=null;
+    t.status="yours";setTitleHolder(t.id,S.rulerId);S.prestige+=50;S.legitimacy=clamp(S.legitimacy+5,0,100);S.claims=S.claims.filter(id=>id!==t.id);S.claimCounty=S.claims[0]||null;
   }
   S.wars=S.wars.filter(x=>x.id!==w.id);log(w.name+" has ended: "+result.replace("_"," ") ,"war");
 }
@@ -488,6 +488,7 @@ function createSingleVassalRevolt(id,target){
 function recruitAction(){recruitMAA();render();saveSilent()}
 function action(a){
   const c=county(S.selectedCounty),h=char(c.holder);
+  if(a==="contract"){showContractModal(h?.id);return}
   if(a==="develop"){if(S.gold<25)return toast("Not enough gold");S.gold-=25;c.dev++;c.tax+=.35;c.control=clamp(c.control+2,0,100);log(c.name+" developed to level "+c.dev)}
   else if(a==="levy"){if(recruitTroops(Math.max(100,Math.min(170,Math.floor(totalLevySource()*.11))),true))log("The marshal raised additional levies from "+c.name,"war")}
   else if(a==="recruit"){recruitAction();return}
@@ -535,8 +536,18 @@ function aiTick(){
     if(v.spouse&&v.id<v.spouse&&v.age<50&&char(v.spouse)?.age<50&&Math.random()<.008)newChild(v.id,v.spouse);
   });
   WORLD.counties.filter(c=>c.status==="rival").forEach(c=>{const v=char(c.holder);if(v&&Math.random()<.12){c.levy+=18;c.garrison+=6;c.control=clamp(c.control+1,0,100)}});
+  notableRulers().forEach(v=>{
+    const agenda=aiAgendaFor(v);
+    if(agenda==="expand"&&v.martial>=8&&Math.random()<.04)log(v.name+" is preparing a campaign.","war");
+    if(agenda==="scheme"&&Math.random()<.025)log(v.name+" is working through spies and courtiers.","court");
+    if(agenda==="diplomacy"&&Math.random()<.035){
+      const candidate=notableRulers().find(x=>x.id!==v.id&&!isAllied(v.id,x.id)&&opinionForAI(v.id,x.id)>=20);
+      if(candidate){S.alliances.push({a:v.id,b:candidate.id,year:S.year});log(v.name+" entered a diplomatic pact with "+candidate.name+".","court")}
+    }
+  });
   directVassalCharacters().forEach(v=>{if(opinion(v.id)<0&&Math.random()<.08)log(v.name+" is gathering supporters for a faction.","court")});
 }
+function opinionForAI(a,b){const x=char(b);if(!x)return -100;let n=x.opinion||0;if(isAllied(a,b))n+=50;return n}
 function monthlyTick(){
   if(S.paused)return;
   S.day+=5;if(S.day>30){S.day=5;S.month++;if(S.month>12){S.month=1;S.year++;Object.values(WORLD.characters).forEach(c=>{if(c.alive)c.age+=1});yearTick()}}

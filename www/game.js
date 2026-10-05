@@ -1,4 +1,4 @@
-const KEY="dynasty_realms_save_v05";
+const KEY="dynasty_realms_save_v06";
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const char=id=>WORLD.characters[id];
@@ -9,7 +9,7 @@ const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
 const pick=a=>a[Math.floor(Math.random()*a.length)];
 
 function freshState(){
-  return {version:5,year:1066,month:9,day:3,paused:false,speed:1,selectedCounty:"c_northwatch",
+  return {version:6,year:1066,month:9,day:3,paused:false,speed:1,selectedCounty:"c_northwatch",
     gold:72,prestige:85,piety:40,legitimacy:78,stress:18,levies:1280,troopCap:1900,
     succession:"male_preference",crownAuthority:"low",culture:"Arvendic",faith:"Old Church",
     rulerId:"c_edric",heirId:"c_rowan",claimCounty:null,
@@ -18,7 +18,7 @@ function freshState(){
     marriages:[{a:"c_edric",b:"c_mara",year:1062}],children:["c_alina","c_rowan"],customCharacters:{},
     titleHolders:{k_arvend:"c_edric",d_north:"c_edric",d_east:"c_roderic",d_gold:"c_alden"},
     countyState:{},
-    factions:[],wars:[],
+    factions:[],wars:[],claims:[],alliances:[],vassalContracts:{},aiAgendas:{},
     councilTasks:{chancellor:{task:"idle",progress:0},marshal:{task:"idle",progress:0},steward:{task:"idle",progress:0},spymaster:{task:"idle",progress:0},chaplain:{task:"idle",progress:0}},
     armies:[{id:"a_main",name:"Northern Host",men:1000,levy:850,menAtArms:150,morale:100,commander:"c_edric",location:"c_northwatch",supply:100,fatigue:0,raised:true}],
     events:[
@@ -49,6 +49,10 @@ function load(){
     if(!raw)return null;
     const x=JSON.parse(raw),n=freshState();Object.assign(n,x,{version:5});
     n.events=Array.isArray(n.events)?n.events:n.events||[];
+    n.claims=Array.isArray(n.claims)?n.claims:(x.claimCounty?[x.claimCounty]:[]);
+    n.alliances=Array.isArray(n.alliances)?n.alliances:[];
+    n.vassalContracts=n.vassalContracts&&typeof n.vassalContracts==="object"?n.vassalContracts:{};
+    n.aiAgendas=n.aiAgendas&&typeof n.aiAgendas==="object"?n.aiAgendas:{};
     n.marriages=Array.isArray(n.marriages)?n.marriages:[];
     n.children=Array.isArray(n.children)?n.children:["c_alina","c_rowan"];
     n.customCharacters=n.customCharacters&&typeof n.customCharacters==="object"?n.customCharacters:{};
@@ -61,13 +65,56 @@ function load(){
     n.armies=Array.isArray(n.armies)&&n.armies.length?n.armies:freshState().armies;
     n.council=n.council||freshState().council;n.relations=n.relations||{};
     Object.values(n.customCharacters).forEach(c=>{c.children=c.children||[];c.health=c.health??100;c.fertility=c.fertility??.7});
+    n.claimCounty=n.claims[0]||null;
     return n;
   }catch(e){return null}
 }
 let S=load()||freshState();
 if(!S.titleHolders)S.titleHolders=freshState().titleHolders;
 if(!S.countyState)S.countyState={};
-applyWorldState();rebuildHeir();
+function normalizeDiplomacy(){
+  S.claims=Array.isArray(S.claims)?S.claims.filter(id=>county(id)&&county(id).status!=="yours"):[];
+  S.claimCounty=S.claims[0]||null;
+  S.alliances=Array.isArray(S.alliances)?S.alliances.filter(a=>char(a.a)?.alive&&char(a.b)?.alive&&a.a!==a.b):[];
+  S.vassalContracts=S.vassalContracts&&typeof S.vassalContracts==="object"?S.vassalContracts:{};
+  directVassalCharacters().forEach(v=>{if(!S.vassalContracts[v.id])S.vassalContracts[v.id]={tax:"normal",levy:"normal"}});
+  S.aiAgendas=S.aiAgendas&&typeof S.aiAgendas==="object"?S.aiAgendas:{};
+}
+function domainLimit(){const st=ruler()?.stewardship||5;return 2+Math.floor(st/3)+(S.crownAuthority==="high"?1:0)}
+function directDomainCount(){return WORLD.counties.filter(c=>c.holder===S.rulerId).length}
+function overDomainFactor(){const over=Math.max(0,directDomainCount()-domainLimit());return 1-Math.min(.55,over*.12)}
+function contract(id){return S.vassalContracts[id]||{tax:"normal",levy:"normal"}}
+function contractTaxFactor(v){return ({low:.7,normal:1,high:1.3}[contract(v.id).tax]||1)}
+function contractLevyFactor(v){return ({low:.7,normal:1,high:1.3}[contract(v.id).levy]||1)}
+function isAllied(a,b){return S.alliances.some(x=>(x.a===a&&x.b===b)||(x.a===b&&x.b===a))}
+function diplomacyScore(id){const v=char(id);if(!v)return -100;let n=opinion(id);if(v.dynasty===ruler().dynasty)n+=25;if(v.spouse===ruler().id||ruler().spouse===id)n+=35;if(isAllied(S.rulerId,id))n+=50;return clamp(n,-100,100)}
+function notableRulers(){const ids=[];WORLD.duchies.forEach(d=>{const h=titleHolder(d.id);if(h&&h!==S.rulerId&&!ids.includes(h))ids.push(h)});WORLD.counties.forEach(c=>{if(c.status==="neutral"&&c.holder!==S.rulerId&&!ids.includes(c.holder))ids.push(c.holder)});return ids.map(char).filter(v=>v&&v.alive)}
+function aiAgendaFor(v){if(S.aiAgendas[v.id])return S.aiAgendas[v.id];const x=(v.traits||[]).includes("Ambitious")?"expand":(v.traits||[]).includes("Content")?"consolidate":v.martial>=10?"war":v.intrigue>=8?"scheme":"diplomacy";S.aiAgendas[v.id]=x;return x}
+function setContract(id,tax,levy){
+  const v=char(id);if(!v||!directVassalCharacters().some(x=>x.id===id))return toast("Not a direct vassal");
+  const valid=["low","normal","high"];if(!valid.includes(tax)||!valid.includes(levy))return;
+  const old=contract(id);if(old.tax===tax&&old.levy===levy)return toast("Contract unchanged");
+  if(S.prestige<10)return toast("Need 10 prestige");
+  S.prestige-=10;S.vassalContracts[id]={tax,levy};S.relations[id]=clamp(opinion(id)-8,-100,100);S.stress=clamp(S.stress+2,0,100);
+  log("The crown changed "+v.name+"'s contract to "+tax+" taxes / "+levy+" levies.","court");toast("Contract changed");render();saveSilent();
+}
+function offerAlliance(id){
+  const v=char(id);if(!v||v.id===S.rulerId)return;
+  if(isAllied(S.rulerId,id))return toast("Already allied");
+  if(externalWars().length)return toast("Cannot negotiate during war");
+  if(v.age<16)return toast("The ruler is too young");
+  if(diplomacyScore(id)<35)return toast("They are not receptive");
+  if(S.prestige<20)return toast("Need 20 prestige");
+  S.prestige-=20;S.alliances.push({a:S.rulerId,b:id,year:S.year});S.relations[id]=clamp(opinion(id)+8,-100,100);
+  log("An alliance was forged with "+v.name+".","court");toast("Alliance formed");render();saveSilent();
+}
+function endAlliance(id){
+  S.alliances=S.alliances.filter(a=>!(a.a===S.rulerId&&a.b===id)&&!(a.a===id&&a.b===S.rulerId));
+  if(char(id))log("The alliance with "+char(id).name+" was dissolved.","court");
+  render();saveSilent();
+}
+
+applyWorldState();normalizeDiplomacy();rebuildHeir();
 
 function saveSilent(){syncWorldState();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
 function save(){saveSilent();toast("Game saved")}
@@ -94,18 +141,26 @@ function directVassalCharacters(){
 }
 function directVassalCounties(){return WORLD.counties.filter(c=>c.holder!==S.rulerId&&countyLiege(c)===S.rulerId)}
 function realmTax(){
-  const st=char(S.council.steward),eff=1+clamp(((st?.stewardship||5)-8)*.025,-.25,.45);
-  return ownedCounties().reduce((n,c)=>n+c.tax*(c.dev/7)*eff*(.55+c.control/100*.45),0);
+  const st=char(S.council.steward),eff=1+clamp(((st?.stewardship||5)-8)*.025,-.25,.45),cap=overDomainFactor();
+  return WORLD.counties.filter(c=>c.status==="yours"&&isPlayerVassal(c.holder)).reduce((n,c)=>{
+    const base=c.tax*(c.dev/7)*eff*(.55+c.control/100*.45);
+    if(c.holder===S.rulerId)return n+base*cap;
+    return n+base*.55*contractTaxFactor(char(c.holder));
+  },0);
 }
 function opinion(id){return S.relations[id]??char(id)?.opinion??0}
-function totalLevySource(){return ownedCounties().reduce((n,c)=>n+c.levy,0)}
+function totalLevySource(){return ownedCounties().reduce((n,c)=>{if(c.holder===S.rulerId)return n+c.levy*overDomainFactor();const v=char(c.holder);return n+c.levy*.65*contractLevyFactor(v)},0)}
 function playerPower(){return S.armies.filter(a=>a.raised).reduce((n,a)=>n+a.men,0)+ownedCounties().reduce((n,c)=>n+c.garrison,0)}
 function realmArmies(){return S.armies.filter(a=>a.raised)}
 function activeWar(id){return S.wars.find(w=>w.id===id)}
 function externalWars(){return S.wars.filter(w=>w.kind!=="revolt")}
 function revoltWars(){return S.wars.filter(w=>w.kind==="revolt")}
 function enemyTitleHolder(c){return c?titleHolder(c.duchy):null}
-function enemyPower(c){return c?(c.levy+c.garrison):0}
+function enemyPower(c){
+  if(!c)return 0;let p=c.levy+c.garrison;const liege=titleHolder(c.duchy);
+  notableRulers().filter(v=>isAllied(liege,v.id)).forEach(v=>{p+=Math.floor(vassalPower(v.id)*.35)});
+  return p;
+}
 function terrainMod(t){return ({plains:1,forest:.9,hills:.95,mountains:.78,coast:.97}[t]||1)}
 
 function renderTop(){
@@ -134,8 +189,8 @@ function renderSelected(){
   $("countyName").textContent=c.name;$("countyHolder").textContent=h?.name||"Vacant";$("countyDev").textContent=c.dev;$("countyTax").textContent=c.tax.toFixed(1)+"/mo";$("countyGarrison").textContent=c.garrison;$("countyLevy").textContent=c.levy;$("countyDuchy").textContent=d.name.replace("Duchy of ","");
   $("countyStatus").textContent=c.status==="yours"?(c.holder===S.rulerId?"DIRECT DOMAIN":"VASSAL DOMAIN"):c.status==="rival"?"RIVAL":"INDEPENDENT";
   let actions=[];
-  if(c.status==="rival")actions=[["Fabricate Claim","-35 prestige","claim"],["Declare War","Requires adjacency + claim","war"],["Sway Ruler","+20 opinion","sway"],["Scout Province","Reveal strength","inspect"]];
-  else if(c.status!=="yours")actions=[["Fabricate Claim","-35 prestige","claim"],["Send Gift","-15 gold · +25 opinion","gift"],["Arrange Marriage","Adult dynastic match","marry"],["Invite to Court","+10 opinion","invite"]];
+  if(c.status==="rival")actions=[["Fabricate Claim","-35 prestige","claim"],["Offer Alliance","-20 prestige","alliance"],["Declare War","Requires adjacency + claim","war"],["Sway Ruler","+20 opinion","sway"]];
+  else if(c.status!=="yours")actions=[["Fabricate Claim","-35 prestige","claim"],["Send Gift","-15 gold · +25 opinion","gift"],["Arrange Marriage","Adult dynastic match","marry"],["Offer Alliance","-20 prestige","alliance"]];
   else if(c.holder!==S.rulerId)actions=[["Revoke Title","Risk faction revolt","revoke"],["Develop Holding","-25 gold · +1 development","develop"],["Raise Levies","+troops · -12 gold","levy"],["Sway Vassal","+20 opinion","sway"]];
   else actions=[["Develop Holding","-25 gold · +1 development","develop"],["Raise Levies","+troops · -12 gold","levy"],["Recruit Men-at-Arms","-35 gold · +100 MAA","recruit"],["Grant Title","Choose a direct vassal","grant"]];
   $("countyActions").innerHTML=actions.map(a=>"<button class='action-btn' data-action='"+a[2]+"'><b>"+esc(a[0])+"</b><span>"+esc(a[1])+"</span></button>").join("");
@@ -157,7 +212,7 @@ function renderSociety(){
   document.querySelectorAll("#tab-realm [data-action]").forEach(b=>b.onclick=()=>action(b.dataset.action));
 }
 function renderRealm(){
-  $("domainCount").textContent=ownedCounties().length;$("duchyCount").textContent=WORLD.duchies.filter(d=>titleHolder(d.id)===S.rulerId).length;
+  $("domainCount").textContent=directDomainCount()+" / "+domainLimit();$("duchyCount").textContent=WORLD.duchies.filter(d=>titleHolder(d.id)===S.rulerId).length;
   $("realmTax").textContent=realmTax().toFixed(1);$("armyPower").textContent=Math.floor(playerPower());$("law").textContent=S.succession.replace("_"," ");$("authority").textContent=S.crownAuthority;
   $("legitimacyDyn").textContent=Math.round(S.legitimacy);renderSociety();
 }
@@ -182,8 +237,9 @@ function processCouncilTasks(){
 function renderCourt(){
   const rows=[["Chancellor",S.council.chancellor,"Diplomacy"],["Marshal",S.council.marshal,"Army"],["Steward",S.council.steward,"Taxes"],["Spymaster",S.council.spymaster,"Intrigue"],["Chaplain",S.council.chaplain,"Faith"]];
   $("council").innerHTML=rows.map(x=>"<div class='court-row'><div><b>"+esc(x[0])+"</b><span>"+esc(x[2])+"</span></div><strong>"+esc(char(x[1])?.name||"Vacant")+"</strong><em>"+(char(x[1])?.[x[0]==="Chancellor"?"diplomacy":x[0]==="Marshal"?"martial":x[0]==="Steward"?"stewardship":x[0]==="Spymaster"?"intrigue":"learning"]||0)+"</em></div>").join("");
-  $("vassals").innerHTML=directVassalCharacters().map(v=>"<button class='list-row' data-char='"+v.id+"'><span>"+esc(v.name)+"</span><b>"+opinion(v.id)+"</b><small>"+esc(titleNameForHolder(v.id))+" · "+esc(v.title)+"</small></button>").join("")||"<div class='empty'>No direct county vassals report to your crown.</div>";
-  document.querySelectorAll("#tab-court [data-char]").forEach(b=>b.onclick=()=>showCharacter(b.dataset.char));renderCouncilTasks();
+  $("vassals").innerHTML=directVassalCharacters().map(v=>{const ct=contract(v.id);return "<div class='vassal-row'><button class='list-row' data-char='"+v.id+"'><span>"+esc(v.name)+"</span><b>"+opinion(v.id)+"</b><small>"+esc(titleNameForHolder(v.id))+" · "+esc(v.title)+" · Tax "+ct.tax+" · Levy "+ct.levy+"</small></button><button class='contract-btn' data-contract='"+v.id+"'>Contract</button></div>"}).join("")||"<div class='empty'>No direct county vassals report to your crown.</div>";
+  document.querySelectorAll("#tab-court [data-char]").forEach(b=>b.onclick=()=>showCharacter(b.dataset.char));
+  document.querySelectorAll("[data-contract]").forEach(b=>b.onclick=()=>showContractModal(b.dataset.contract));renderCouncilTasks();
 }
 function titleNameForHolder(id){const c=WORLD.counties.find(x=>x.holder===id);return c?c.name:"Court";}
 
@@ -277,8 +333,22 @@ function renderWar(){
   }).join("");
   document.querySelectorAll("[data-war-action]").forEach(b=>b.onclick=()=>warAction(b.dataset.war,b.dataset.warAction));
 }
+function renderDiplomacy(){
+  const allies=S.alliances.filter(a=>a.a===S.rulerId||a.b===S.rulerId).map(a=>a.a===S.rulerId?a.b:a.a).map(char).filter(Boolean);
+  $("alliances").innerHTML=allies.map(v=>"<div class='diplomacy-card'><div><b>"+esc(v.name)+"</b><small>Alliance · "+esc(v.dynasty)+"</small></div><button class='order-btn' data-end-alliance='"+v.id+"'>Dissolve</button></div>").join("")||"<div class='empty'>No active alliances.</div>";
+  $("diplomacy").innerHTML=notableRulers().map(v=>{const allied=isAllied(S.rulerId,v.id),score=diplomacyScore(v.id),agenda=aiAgendaFor(v);return "<div class='diplomacy-card'><div><b>"+esc(v.name)+"</b><small>"+esc(v.title)+" · opinion "+opinion(v.id)+" · agenda "+esc(agenda)+" · score "+score+"</small></div><button class='order-btn' data-dip='"+v.id+"'>"+(allied?"Allied":"Offer Alliance")+"</button></div>"}).join("")||"<div class='empty'>No neighboring rulers are known.</div>";
+  document.querySelectorAll("[data-dip]").forEach(b=>b.onclick=()=>{const id=b.dataset.dip;if(!isAllied(S.rulerId,id))offerAlliance(id)});
+  document.querySelectorAll("[data-end-alliance]").forEach(b=>b.onclick=()=>endAlliance(b.dataset.endAlliance));
+}
+function showContractModal(id){
+  const v=char(id);if(!v)return;const ct=contract(id);$("modal").classList.add("open");
+  $("modalBody").innerHTML="<div class='modal-head'><div><span class='eyebrow'>VASSAL CONTRACT</span><h2>"+esc(v.name)+"</h2></div><button id='closeModal'>×</button></div><p class='muted'>Higher obligations increase crown income and levies, but lower opinion.</p><div class='contract-box'><b>Tax obligation</b><div class='order-grid'>"+["low","normal","high"].map(x=>"<button class='order-btn' data-tax-choice='"+x+"'><b>"+x+"</b><span>"+(x===ct.tax?"Current":"Set")+" · "+({low:"70%",normal:"100%",high:"130%"}[x])+"</span></button>").join("")+"</div><b>Levy obligation</b><div class='order-grid'>"+["low","normal","high"].map(x=>"<button class='order-btn' data-levy-choice='"+x+"'><b>"+x+"</b><span>"+(x===ct.levy?"Current":"Set")+" · "+({low:"70%",normal:"100%",high:"130%"}[x])+"</span></button>").join("")+"</div></div>";
+  $("closeModal").onclick=()=>$("modal").classList.remove("open");
+  document.querySelectorAll("[data-tax-choice]").forEach(b=>b.onclick=()=>setContract(id,b.dataset.taxChoice,ct.levy));
+  document.querySelectorAll("[data-levy-choice]").forEach(b=>b.onclick=()=>setContract(id,ct.tax,b.dataset.levyChoice));
+}
 function renderEvents(){$("events").innerHTML=S.events.map(e=>"<div class='event'><i class='event-dot "+esc(e.kind)+"'></i><div><p>"+esc(e.text)+"</p><time>"+esc(e.when)+"</time></div></div>").join("")}
-function render(){renderTop();renderMap();renderTitles();renderSelected();renderRuler();renderRealm();renderCourt();renderDynasty();renderFactions();renderWar();renderArmy();renderArmyOrders();renderEvents()}
+function render(){renderTop();renderMap();renderTitles();renderSelected();renderRuler();renderRealm();renderCourt();renderDynasty();renderFactions();renderWar();renderArmy();renderArmyOrders();renderDiplomacy();renderEvents()}
 
 function recruitTroops(amount,charge=true){
   if(charge&&S.gold<12)return false;if(charge)S.gold-=12;
@@ -424,16 +494,17 @@ function action(a){
   else if(a==="extax"){S.gold+=12;S.stress=clamp(S.stress+5,0,100);log("Extraordinary tax was imposed in "+c.name,"court")}
   else if(a==="grant"){showGrantModal();return}
   else if(a==="revoke"){revokeTitle()}
-  else if(a==="claim"){if(S.prestige<35)return toast("Need 35 prestige");S.prestige-=35;S.claimCounty=c.id;log("A fabricated claim on "+c.name+" is now recognized.","court")}
+  else if(a==="claim"){if(S.claims.includes(c.id))return toast("You already have a claim");if(S.prestige<35)return toast("Need 35 prestige");S.prestige-=35;S.claims.push(c.id);S.claimCounty=c.id;log("A fabricated claim on "+c.name+" is now recognized.","court")}
   else if(a==="sway"){if(!h)return;S.relations[h.id]=clamp(opinion(h.id)+20,-100,100);S.prestige=Math.max(0,S.prestige-10);log("Your diplomat began swaying "+h.name)}
   else if(a==="gift"){if(S.gold<15)return toast("Not enough gold");S.gold-=15;S.relations[h.id]=clamp(opinion(h.id)+25,-100,100);log("A costly gift improved relations with "+h.name)}
+  else if(a==="alliance"){offerAlliance(h?.id);return}
   else if(a==="marry"){arrangeMarriage(h.id);return}
   else if(a==="invite"){if(!h)return;S.relations[h.id]=clamp(opinion(h.id)+10,-100,100);log(h.name+" was invited to court")}
   else if(a==="inspect"){toast((h?.name||"The holder")+" fields roughly "+(c.levy+c.garrison)+" defenders in "+c.name);return}
   else if(a==="war"){
     if(S.wars.some(w=>w.kind!=="revolt"))return toast("Already at external war");
     if(c.status!=="rival")return toast("That county is not hostile");
-    if(!S.claimCounty||S.claimCounty!==c.id)return toast("Need a valid claim");
+    if(!S.claims.includes(c.id))return toast("Need a valid claim");
     const adjacent=ownedCounties().some(pc=>(WORLD.adjacency[pc.id]||[]).includes(c.id));
     if(!adjacent)return toast("Target is not adjacent to your domain");
     if(playerPower()<700)return toast("Need 700 troops in the field");

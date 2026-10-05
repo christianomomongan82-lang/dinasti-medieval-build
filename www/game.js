@@ -45,7 +45,7 @@ function syncWorldState(){
 }
 function load(){
   try{
-    const raw=localStorage.getItem(KEY)||localStorage.getItem("dynasty_realms_save_v06")||localStorage.getItem("dynasty_realms_save_v05")||localStorage.getItem("dynasty_realms_save_v03")||localStorage.getItem("dynasty_realms_save_v02");
+    const raw=localStorage.getItem(KEY)||localStorage.getItem("dynasty_realms_save_v07")||localStorage.getItem("dynasty_realms_save_v06")||localStorage.getItem("dynasty_realms_save_v05")||localStorage.getItem("dynasty_realms_save_v03")||localStorage.getItem("dynasty_realms_save_v02");
     if(!raw)return null;
     const x=JSON.parse(raw),n=freshState();Object.assign(n,x,{version:7});
     n.events=Array.isArray(n.events)?n.events:n.events||[];
@@ -226,7 +226,7 @@ applyWorldState();normalizeDiplomacy();normalizeEconomy();rebuildHeir();
 
 function saveSilent(){syncWorldState();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
 function save(){saveSilent();toast("Game saved")}
-function reset(){localStorage.removeItem(KEY);localStorage.removeItem("dynasty_realms_save_v06");localStorage.removeItem("dynasty_realms_save_v05");localStorage.removeItem("dynasty_realms_save_v03");localStorage.removeItem("dynasty_realms_save_v02");location.reload()}
+function reset(){localStorage.removeItem(KEY);localStorage.removeItem("dynasty_realms_save_v07");localStorage.removeItem("dynasty_realms_save_v06");localStorage.removeItem("dynasty_realms_save_v05");localStorage.removeItem("dynasty_realms_save_v03");localStorage.removeItem("dynasty_realms_save_v02");location.reload()}
 function toast(msg){const t=$("toast");t.textContent=msg;t.classList.add("show");clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove("show"),1700)}
 function log(text,kind="court"){S.events.unshift({text,when:"Now",kind});S.events=S.events.slice(0,16)}
 function ruler(){return char(S.rulerId)}

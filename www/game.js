@@ -1,4 +1,4 @@
-const KEY="dynasty_realms_save_v06";
+const KEY="dynasty_realms_save_v07";
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const char=id=>WORLD.characters[id];
@@ -9,7 +9,7 @@ const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
 const pick=a=>a[Math.floor(Math.random()*a.length)];
 
 function freshState(){
-  return {version:6,year:1066,month:9,day:3,paused:false,speed:1,selectedCounty:"c_northwatch",
+  return {version:7,year:1066,month:9,day:3,paused:false,speed:1,selectedCounty:"c_northwatch",
     gold:72,prestige:85,piety:40,legitimacy:78,stress:18,levies:1280,troopCap:1900,
     succession:"male_preference",crownAuthority:"low",culture:"Arvendic",faith:"Old Church",
     rulerId:"c_edric",heirId:"c_rowan",claimCounty:null,
@@ -18,7 +18,7 @@ function freshState(){
     marriages:[{a:"c_edric",b:"c_mara",year:1062}],children:["c_alina","c_rowan"],customCharacters:{},
     titleHolders:{k_arvend:"c_edric",d_north:"c_edric",d_east:"c_roderic",d_gold:"c_alden"},
     countyState:{},
-    factions:[],wars:[],claims:[],alliances:[],vassalContracts:{},aiAgendas:{},
+    factions:[],wars:[],claims:[],alliances:[],vassalContracts:{},aiAgendas:{},decisions:{feast:0,hunt:0,pilgrimage:0,muster:0,arts:0},
     councilTasks:{chancellor:{task:"idle",progress:0},marshal:{task:"idle",progress:0},steward:{task:"idle",progress:0},spymaster:{task:"idle",progress:0},chaplain:{task:"idle",progress:0}},
     armies:[{id:"a_main",name:"Northern Host",men:1000,levy:850,menAtArms:150,morale:100,commander:"c_edric",location:"c_northwatch",supply:100,fatigue:0,raised:true}],
     events:[
@@ -39,17 +39,18 @@ function applyWorldState(){
 }
 function syncWorldState(){
   S.countyState={};
-  WORLD.counties.forEach(c=>S.countyState[c.id]={holder:c.holder,status:c.status,dev:c.dev,tax:c.tax,garrison:c.garrison,levy:c.levy,control:c.control,siege:c.siege,culture:c.culture,faith:c.faith,fort:c.fort});
+  WORLD.counties.forEach(c=>S.countyState[c.id]={holder:c.holder,status:c.status,dev:c.dev,tax:c.tax,garrison:c.garrison,levy:c.levy,control:c.control,siege:c.siege,culture:c.culture,faith:c.faith,fort:c.fort,buildings:c.buildings||{farm:0,market:0,walls:0}});
   S.titleHolders={};WORLD.titles.forEach(t=>S.titleHolders[t.id]=t.holder);
   Object.values(WORLD.characters).filter(c=>S.customCharacters&&S.customCharacters[c.id]).forEach(c=>S.customCharacters[c.id]=c);
 }
 function load(){
   try{
-    const raw=localStorage.getItem(KEY)||localStorage.getItem("dynasty_realms_save_v03")||localStorage.getItem("dynasty_realms_save_v02");
+    const raw=localStorage.getItem(KEY)||localStorage.getItem("dynasty_realms_save_v06")||localStorage.getItem("dynasty_realms_save_v05")||localStorage.getItem("dynasty_realms_save_v03")||localStorage.getItem("dynasty_realms_save_v02");
     if(!raw)return null;
-    const x=JSON.parse(raw),n=freshState();Object.assign(n,x,{version:6});
+    const x=JSON.parse(raw),n=freshState();Object.assign(n,x,{version:7});
     n.events=Array.isArray(n.events)?n.events:n.events||[];
     n.claims=Array.isArray(n.claims)?n.claims:(x.claimCounty?[x.claimCounty]:[]);
+    n.decisions=n.decisions&&typeof n.decisions==="object"?n.decisions:{feast:0,hunt:0,pilgrimage:0,muster:0,arts:0};
     n.alliances=Array.isArray(n.alliances)?n.alliances:[];
     n.vassalContracts=n.vassalContracts&&typeof n.vassalContracts==="object"?n.vassalContracts:{};
     n.aiAgendas=n.aiAgendas&&typeof n.aiAgendas==="object"?n.aiAgendas:{};
@@ -72,6 +73,35 @@ function load(){
 let S=load()||freshState();
 if(!S.titleHolders)S.titleHolders=freshState().titleHolders;
 if(!S.countyState)S.countyState={};
+function normalizeEconomy(){
+  WORLD.counties.forEach(c=>{c.buildings=c.buildings||{farm:0,market:0,walls:0};c.buildings.farm=clamp(c.buildings.farm||0,0,3);c.buildings.market=clamp(c.buildings.market||0,0,3);c.buildings.walls=clamp(c.buildings.walls||0,0,3)});
+  S.decisions=S.decisions&&typeof S.decisions==="object"?S.decisions:{feast:0,hunt:0,pilgrimage:0,muster:0,arts:0};
+}
+function buildingTaxMultiplier(c){const b=c.buildings||{};return 1+(b.farm||0)*.12+(b.market||0)*.09}
+function buildingGarrison(c){return (c.buildings?.walls||0)*80}
+function buildHolding(id,type){
+  const c=county(id);if(!c||!["farm","market","walls"].includes(type))return;
+  if(c.status!=="yours"||!isPlayerVassal(c.holder))return toast("This holding is outside your realm");
+  const b=c.buildings||{farm:0,market:0,walls:0},level=b[type]||0;if(level>=3)return toast("Building is already level 3");
+  const cost=(type==="farm"?30:type==="market"?35:40)+level*(type==="farm"?25:type==="market"?30:35);
+  if(S.gold<cost)return toast("Need "+cost+" gold");
+  S.gold-=cost;b[type]=level+1;c.buildings=b;
+  if(type==="farm")c.levy+=20;else if(type==="market")c.tax+=.25;else{c.garrison+=80;c.fort=Math.min(6,(c.fort||1)+1)}
+  c.control=clamp(c.control+3,0,100);S.prestige+=type==="walls"?3:1;
+  log(c.name+" upgraded its "+(type==="farm"?"farms":type==="market"?"market":"fortifications")+" to level "+b[type]+".","court");toast("Holding upgraded");render();saveSilent();
+}
+function decision(id){
+  if((S.decisions[id]||0)>0)return toast("Decision on cooldown");
+  const costs={feast:20,hunt:10,pilgrimage:15,muster:18,arts:25},cost=costs[id];if(S.gold<cost)return toast("Need "+cost+" gold");
+  S.gold-=cost;
+  if(id==="feast"){S.stress=clamp(S.stress-12,0,100);directVassalCharacters().forEach(v=>S.relations[v.id]=clamp(opinion(v.id)+12,-100,100));S.prestige+=10;S.decisions.feast=12;log("A grand feast strengthened royal bonds.","court")}
+  if(id==="hunt"){S.stress=clamp(S.stress-8,0,100);S.prestige+=18;S.decisions.hunt=12;log("The royal hunt brought prestige and eased the ruler's mind.","court")}
+  if(id==="pilgrimage"){S.piety+=30;S.legitimacy=clamp(S.legitimacy+6,0,100);S.stress=clamp(S.stress-10,0,100);S.decisions.pilgrimage=24;log("The ruler completed a pilgrimage. Faith in the crown grew.","dynasty")}
+  if(id==="muster"){recruitTroops(260,false);S.stress=clamp(S.stress+8,0,100);S.decisions.muster=12;log("An emergency muster raised 260 troops for the crown.","war")}
+  if(id==="arts"){S.prestige+=30;S.gold+=8;S.decisions.arts=18;log("Royal patronage attracted artists and scholars to the court.","court")}
+  render();saveSilent();
+}
+function tickDecisions(){Object.keys(S.decisions||{}).forEach(k=>{S.decisions[k]=Math.max(0,(S.decisions[k]||0)-1)})}
 function normalizeDiplomacy(){
   S.claims=Array.isArray(S.claims)?S.claims.filter(id=>county(id)&&county(id).status!=="yours"):[];
   S.claimCounty=S.claims[0]||null;
@@ -114,11 +144,11 @@ function endAlliance(id){
   render();saveSilent();
 }
 
-applyWorldState();normalizeDiplomacy();rebuildHeir();
+applyWorldState();normalizeDiplomacy();normalizeEconomy();rebuildHeir();
 
 function saveSilent(){syncWorldState();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
 function save(){saveSilent();toast("Game saved")}
-function reset(){localStorage.removeItem(KEY);localStorage.removeItem("dynasty_realms_save_v05");localStorage.removeItem("dynasty_realms_save_v03");localStorage.removeItem("dynasty_realms_save_v02");location.reload()}
+function reset(){localStorage.removeItem(KEY);localStorage.removeItem("dynasty_realms_save_v06");localStorage.removeItem("dynasty_realms_save_v05");localStorage.removeItem("dynasty_realms_save_v03");localStorage.removeItem("dynasty_realms_save_v02");location.reload()}
 function toast(msg){const t=$("toast");t.textContent=msg;t.classList.add("show");clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove("show"),1700)}
 function log(text,kind="court"){S.events.unshift({text,when:"Now",kind});S.events=S.events.slice(0,16)}
 function ruler(){return char(S.rulerId)}
@@ -144,8 +174,8 @@ function realmTax(){
   const st=char(S.council.steward),eff=1+clamp(((st?.stewardship||5)-8)*.025,-.25,.45),cap=overDomainFactor();
   return WORLD.counties.filter(c=>c.status==="yours"&&isPlayerVassal(c.holder)).reduce((n,c)=>{
     const base=c.tax*(c.dev/7)*eff*(.55+c.control/100*.45);
-    if(c.holder===S.rulerId)return n+base*cap;
-    return n+base*.55*contractTaxFactor(char(c.holder));
+    if(c.holder===S.rulerId)return n+base*cap*buildingTaxMultiplier(c);
+    return n+base*.55*contractTaxFactor(char(c.holder))*buildingTaxMultiplier(c);
   },0);
 }
 function opinion(id){return S.relations[id]??char(id)?.opinion??0}
@@ -188,11 +218,13 @@ function renderSelected(){
   const c=county(S.selectedCounty),h=char(c.holder),d=duchy(c.duchy);
   $("countyName").textContent=c.name;$("countyHolder").textContent=h?.name||"Vacant";$("countyDev").textContent=c.dev;$("countyTax").textContent=c.tax.toFixed(1)+"/mo";$("countyGarrison").textContent=c.garrison;$("countyLevy").textContent=c.levy;$("countyDuchy").textContent=d.name.replace("Duchy of ","");
   $("countyStatus").textContent=c.status==="yours"?(c.holder===S.rulerId?"DIRECT DOMAIN":"VASSAL DOMAIN"):c.status==="rival"?"RIVAL":"INDEPENDENT";
+  const hb=c.buildings||{farm:0,market:0,walls:0};$("holdingsSummary").innerHTML="<b>Holdings:</b> Farms "+hb.farm+"/3 · Markets "+hb.market+"/3 · Fortifications "+hb.walls+"/3";
   let actions=[];
   if(c.status==="rival")actions=[["Fabricate Claim","-35 prestige","claim"],["Offer Alliance","-20 prestige","alliance"],["Declare War","Requires adjacency + claim","war"],["Sway Ruler","+20 opinion","sway"]];
   else if(c.status!=="yours")actions=[["Fabricate Claim","-35 prestige","claim"],["Send Gift","-15 gold · +25 opinion","gift"],["Arrange Marriage","Adult dynastic match","marry"],["Offer Alliance","-20 prestige","alliance"]];
   else if(c.holder!==S.rulerId)actions=[["Revoke Title","Risk faction revolt","revoke"],["Develop Holding","-25 gold · +1 development","develop"],["Raise Levies","+troops · -12 gold","levy"],["Sway Vassal","+20 opinion","sway"]];
   else actions=[["Develop Holding","-25 gold · +1 development","develop"],["Raise Levies","+troops · -12 gold","levy"],["Recruit Men-at-Arms","-35 gold · +100 MAA","recruit"],["Grant Title","Choose a direct vassal","grant"]];
+  if(c.status==="yours"&&isPlayerVassal(c.holder))actions.splice(Math.min(2,actions.length),0,["Manage Holdings","Farms · markets · fortifications","holdings"]);
   $("countyActions").innerHTML=actions.map(a=>"<button class='action-btn' data-action='"+a[2]+"'><b>"+esc(a[0])+"</b><span>"+esc(a[1])+"</span></button>").join("");
   document.querySelectorAll(".action-btn").forEach(b=>b.onclick=()=>action(b.dataset.action));
 }
@@ -333,6 +365,19 @@ function renderWar(){
   }).join("");
   document.querySelectorAll("[data-war-action]").forEach(b=>b.onclick=()=>warAction(b.dataset.war,b.dataset.warAction));
 }
+function renderDecisions(){
+  const defs=[["feast","Grand Feast","-20 gold · -12 stress · +vassal opinion","12 mo"],["hunt","Royal Hunt","-10 gold · -8 stress · +18 prestige","12 mo"],["pilgrimage","Pilgrimage","-15 gold · +30 piety · +6 legitimacy","24 mo"],["muster","Emergency Muster","-18 gold · +260 troops · +8 stress","12 mo"],["arts","Patronize the Arts","-25 gold · +30 prestige · +8 gold","18 mo"]];
+  $("decisions").innerHTML=defs.map(x=>"<button class='decision-card' data-decision='"+x[0]+"'><b>"+esc(x[1])+"</b><span>"+esc(x[2])+"</span><small>"+((S.decisions[x[0]]||0)>0?S.decisions[x[0]]+" mo remaining":x[3]+" cooldown")+"</small></button>").join("");
+  document.querySelectorAll("[data-decision]").forEach(b=>b.onclick=()=>{S.pendingDecision=b.dataset.decision;decision(b.dataset.decision)});
+}
+function showBuildingsModal(id){
+  const c=county(id);if(!c||c.status!=="yours"||!isPlayerVassal(c.holder))return toast("No access to this holding");
+  const b=c.buildings||{farm:0,market:0,walls:0};$("modal").classList.add("open");
+  const defs=[["farm","Farms","More food and levy capacity",30,25],["market","Market","More tax and commerce",35,30],["walls","Fortifications","More garrison and fort strength",40,35]];
+  $("modalBody").innerHTML="<div class='modal-head'><div><span class='eyebrow'>HOLDINGS</span><h2>"+esc(c.name)+"</h2></div><button id='closeModal'>×</button></div><p class='muted'>Build up the county. Each structure has three levels.</p>"+defs.map(x=>"<div class='building-row'><div><b>"+esc(x[1])+" · Level "+b[x[0]]+"</b><small>"+esc(x[2])+"</small></div><button class='order-btn' data-build='"+x[0]+"'>"+(b[x[0]]>=3?"Max":"Build · "+(x[3]+b[x[0]]*x[4])+"g")+"</button></div>").join("");
+  $("closeModal").onclick=()=>$("modal").classList.remove("open");
+  document.querySelectorAll("[data-build]").forEach(btn=>btn.onclick=()=>buildHolding(id,btn.dataset.build));
+}
 function renderDiplomacy(){
   const allies=S.alliances.filter(a=>a.a===S.rulerId||a.b===S.rulerId).map(a=>a.a===S.rulerId?a.b:a.a).map(char).filter(Boolean);
   $("alliances").innerHTML=allies.map(v=>"<div class='diplomacy-card'><div><b>"+esc(v.name)+"</b><small>Alliance · "+esc(v.dynasty)+"</small></div><button class='order-btn' data-end-alliance='"+v.id+"'>Dissolve</button></div>").join("")||"<div class='empty'>No active alliances.</div>";
@@ -348,7 +393,7 @@ function showContractModal(id){
   document.querySelectorAll("[data-levy-choice]").forEach(b=>b.onclick=()=>setContract(id,ct.tax,b.dataset.levyChoice));
 }
 function renderEvents(){$("events").innerHTML=S.events.map(e=>"<div class='event'><i class='event-dot "+esc(e.kind)+"'></i><div><p>"+esc(e.text)+"</p><time>"+esc(e.when)+"</time></div></div>").join("")}
-function render(){renderTop();renderMap();renderTitles();renderSelected();renderRuler();renderRealm();renderCourt();renderDynasty();renderFactions();renderWar();renderArmy();renderArmyOrders();renderDiplomacy();renderEvents()}
+function render(){renderTop();renderMap();renderTitles();renderSelected();renderRuler();renderRealm();renderCourt();renderDynasty();renderFactions();renderWar();renderArmy();renderArmyOrders();renderDiplomacy();renderDecisions();renderEvents()}
 
 function recruitTroops(amount,charge=true){
   if(charge&&S.gold<12)return false;if(charge)S.gold-=12;
@@ -489,6 +534,8 @@ function recruitAction(){recruitMAA();render();saveSilent()}
 function action(a){
   const c=county(S.selectedCounty),h=char(c.holder);
   if(a==="contract"){showContractModal(h?.id);return}
+  if(a==="holdings"){showBuildingsModal(c?.id);return}
+  if(a==="decision"){decision(S.pendingDecision);return}
   if(a==="develop"){if(S.gold<25)return toast("Not enough gold");S.gold-=25;c.dev++;c.tax+=.35;c.control=clamp(c.control+2,0,100);log(c.name+" developed to level "+c.dev)}
   else if(a==="levy"){if(recruitTroops(Math.max(100,Math.min(170,Math.floor(totalLevySource()*.11))),true))log("The marshal raised additional levies from "+c.name,"war")}
   else if(a==="recruit"){recruitAction();return}
@@ -551,11 +598,11 @@ function opinionForAI(a,b){const x=char(b);if(!x)return -100;let n=x.opinion||0;
 function monthlyTick(){
   if(S.paused)return;
   S.day+=5;if(S.day>30){S.day=5;S.month++;if(S.month>12){S.month=1;S.year++;Object.values(WORLD.characters).forEach(c=>{if(c.alive)c.age+=1});yearTick()}}
-  S.gold+=Math.max(0,realmTax()*.10);S.levies=Math.min(S.troopCap,S.levies+Math.floor(totalLevySource()*.018));
+  S.gold+=Math.max(0,realmTax()*.10);S.levies=Math.min(S.troopCap,S.levies+Math.floor(totalLevySource()*.018));normalizeEconomy();
   monthlyArmyTick();processCouncilTasks();familyTick();aiTick();
   S.wars.slice().forEach(w=>monthlyWar(w));
   updateFactions();S.factions.forEach(f=>{if(f.ultimatum>0&&f.strength>=80){f.ultimatum--;if(f.ultimatum===0){createRevolt(f);S.factions=S.factions.filter(x=>x.id!==f.id);log("The faction ultimatum expired. War has begun.","war")}}});
-  rebuildHeir();saveSilent();render();
+  tickDecisions();rebuildHeir();saveSilent();render();
 }
 function yearTick(){
   S.gold+=Math.max(0,realmTax());S.prestige+=2;S.piety+=1;S.legitimacy=clamp(S.legitimacy+1,0,100);

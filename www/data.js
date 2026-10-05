@@ -29,3 +29,36 @@ const WORLD={
     c_hadrik:{id:"c_hadrik",name:"Baron Hadrik",age:52,sex:"m",dynasty:"House Hadrik",title:"Baron of Eastmere",martial:6,diplomacy:6,stewardship:7,intrigue:3,learning:5,traits:["Content"],opinion:42,alive:true,spouse:null}
   }
 };
+
+WORLD.cultures={
+  arvendic:{name:"Arvendic",group:"Western",heritage:"Valic",description:"The dominant court culture of Arvend."},
+  northlander:{name:"Northlander",group:"Northern",heritage:"Valic",description:"A hardy frontier culture built around martial traditions."},
+  easterner:{name:"Eastern Reachfolk",group:"Eastern",heritage:"Lothic",description:"A trade-minded culture shaped by old coastal kingdoms."}
+};
+WORLD.faiths={
+  old_church:{name:"Old Church",group:"Chalcedonian",piety:"Balanced",description:"The established faith of Arvend's noble houses."},
+  sun_cult:{name:"Sun Covenant",group:"Reformist",piety:"Zealous",description:"A reform movement emphasizing holy law and charity."}
+};
+WORLD.laws={
+  succession:[
+    {id:"male_preference",name:"Male Preference",cost:0,desc:"Sons are preferred, but daughters inherit when no eligible son exists."},
+    {id:"equal",name:"Equal Inheritance",cost:150,desc:"The eldest eligible child inherits regardless of sex."},
+    {id:"male_only",name:"Male Only",cost:250,desc:"Only eligible men can inherit landed titles."}
+  ],
+  authority:[
+    {id:"low",name:"Low Crown Authority",cost:0,desc:"Vassals enjoy broad freedom; revocation is difficult."},
+    {id:"medium",name:"Medium Crown Authority",cost:180,desc:"The crown may revoke titles for cause and restrict internal wars."},
+    {id:"high",name:"High Crown Authority",cost:350,desc:"Strong royal administration with greater centralized control."}
+  ]
+};
+WORLD.counties.forEach(c=>{
+  c.culture=c.duchy==="d_north"?"northlander":c.duchy==="d_east"?"easterner":"arvendic";
+  c.faith=c.id==="c_highmoor"?"sun_cult":"old_church";
+  c.control=70+Math.floor(Math.random()*21);
+  c.siege=0;
+});
+Object.values(WORLD.characters).forEach(c=>{
+  c.culture=c.dynasty==="House Vael"?"arvendic":"easterner";
+  c.faith=c.id==="c_sera"?"sun_cult":"old_church";
+  c.health=100;
+});

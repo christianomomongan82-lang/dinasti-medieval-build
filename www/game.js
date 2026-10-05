@@ -13,7 +13,7 @@ function freshState(){
     council:{chancellor:"c_mara",marshal:"c_bren",steward:"c_elira",spymaster:"c_merek",chaplain:"c_sera"},
     relations:{c_bren:61,c_elira:74,c_roderic:-24,c_merek:-10,c_sera:18,c_alden:25,c_hadrik:42},
     marriages:[],children:["c_alina","c_rowan"],titles:{ownedDuchies:["d_north"],kingdom:"k_arvend"},
-    factions:{liberty:[]},war:null,
+    factions:{liberty:[],demands:[],accepted:false},councilTasks:{chancellor:{task:"idle",progress:0},marshal:{task:"idle",progress:0},steward:{task:"idle",progress:0},spymaster:{task:"idle",progress:0},chaplain:{task:"idle",progress:0}},war:null,
     armies:[{id:"a_main",name:"Northern Host",men:1000,levy:850,menAtArms:150,morale:100,commander:"c_edric",location:"c_northwatch",raised:true}],
     events:[
       {text:"Border scouts report increased levies in Sunmere.",when:"3 days ago",kind:"war"},
@@ -28,7 +28,7 @@ function load(){
     Object.assign(n,x,{version:3});
     n.events=Array.isArray(n.events)?n.events:baseState().events;
     n.marriages=Array.isArray(n.marriages)?n.marriages:[];n.children=Array.isArray(n.children)?n.children:["c_alina","c_rowan"];
-    n.factions=n.factions&&typeof n.factions==="object"?n.factions:{liberty:[]};
+    n.factions=n.factions&&typeof n.factions==="object"?n.factions:{liberty:[],demands:[],accepted:false};n.factions.liberty=n.factions.liberty||[];n.councilTasks=n.councilTasks||freshState().councilTasks;
     n.armies=Array.isArray(n.armies)&&n.armies.length?n.armies:n.armies;
     n.armies=n.armies||freshState().armies;
     n.council=n.council||freshState().council;n.relations=n.relations||{};
@@ -71,21 +71,84 @@ function renderRuler(){
   $("rulerStats").innerHTML=[["MART",r.martial],["DIP",r.diplomacy],["STEW",r.stewardship],["INTR",r.intrigue],["LEARN",r.learning]].map(x=>"<div><span>"+x[0]+"</span><b>"+x[1]+"</b></div>").join("");
   $("traits").innerHTML=r.traits.map(t=>"<span class='trait'>"+esc(t)+"</span>").join("");$("heir").textContent=h?h.name+" · age "+h.age:"No heir";$("spouse").textContent=r.spouse?char(r.spouse)?.name:"None";$("dynasty").textContent=r.dynasty
 }
-function renderRealm(){$("domainCount").textContent=ownedCounties().length;$("duchyCount").textContent=ownedDuchies().length;$("realmTax").textContent=realmTax().toFixed(1);$("armyPower").textContent=Math.floor(playerPower());$("law").textContent=S.succession.replace("_"," ");$("authority").textContent=S.crownAuthority;$("legitimacyDyn").textContent=Math.round(S.legitimacy)}
+function renderSociety(){
+  const owned=ownedCounties(),cult={},faith={};
+  owned.forEach(c=>{cult[c.culture]=(cult[c.culture]||0)+1;faith[c.faith]=(faith[c.faith]||0)+1});
+  const topCult=Object.keys(cult).sort((a,b)=>cult[b]-cult[a])[0]||"arvendic",topFaith=Object.keys(faith).sort((a,b)=>faith[b]-faith[a])[0]||"old_church";
+  const sc=WORLD.laws.succession.find(x=>x.id===S.succession)||WORLD.laws.succession[0];
+  const ca=WORLD.laws.authority.find(x=>x.id===S.crownAuthority)||WORLD.laws.authority[0];
+  const control=owned.length?Math.round(owned.reduce((n,c)=>n+c.control,0)/owned.length):0;
+  $("society").innerHTML=
+    "<div class='society-item'><span class='eyebrow'>CULTURE</span><b>"+esc(WORLD.cultures[topCult].name)+"</b><small>"+esc(WORLD.cultures[topCult].description)+"</small></div>"+
+    "<div class='society-item'><span class='eyebrow'>FAITH</span><b>"+esc(WORLD.faiths[topFaith].name)+"</b><small>"+esc(WORLD.faiths[topFaith].description)+"</small></div>"+
+    "<div class='society-item'><span class='eyebrow'>SUCCESSION</span><b>"+esc(sc.name)+"</b><small>"+esc(sc.desc)+"</small><button class='order-btn' data-action='law_succession_equal'>Adopt Equal · 150 prestige</button></div>"+
+    "<div class='society-item'><span class='eyebrow'>CROWN AUTHORITY</span><b>"+esc(ca.name)+"</b><small>"+esc(ca.desc)+"</small><button class='order-btn' data-action='law_authority_medium'>Raise Authority · 180 prestige</button></div>"+
+    "<div class='society-item'><span class='eyebrow'>COUNTY CONTROL</span><b>"+control+"%</b><small>Administration and local compliance across your domain.</small></div>"+
+    "<div class='society-item'><span class='eyebrow'>DIVERSITY</span><b>"+Object.keys(cult).length+" cultures · "+Object.keys(faith).length+" faiths</b><small>Different peoples create different political pressures.</small></div>";
+  document.querySelectorAll("#tab-realm [data-action]").forEach(b=>b.onclick=()=>action(b.dataset.action));
+}
+function renderRealm(){$("domainCount").textContent=ownedCounties().length;$("duchyCount").textContent=ownedDuchies().length;$("realmTax").textContent=realmTax().toFixed(1);$("armyPower").textContent=Math.floor(playerPower());$("law").textContent=S.succession.replace("_"," ");$("authority").textContent=S.crownAuthority;$("legitimacyDyn").textContent=Math.round(S.legitimacy);renderSociety()}
+function renderCouncilTasks(){
+  const specs=[
+    ["Chancellor","chancellor","Reconcile Vassals","Improve the opinion of your most hostile vassal."],
+    ["Marshal","marshal","Organize Levies","Prepare fresh troops for the next campaign."],
+    ["Steward","steward","Audit Taxes","Find hidden revenue in the domain."],
+    ["Spymaster","spymaster","Find Secrets","Build leverage against an enemy court."],
+    ["Chaplain","chaplain","Religious Study","Generate piety and reinforce legitimacy."]
+  ];
+  $("councilTasks").innerHTML=specs.map(x=>{
+    const st=S.councilTasks[x[1]];
+    return "<div class='task-row'><div><b>"+x[0]+" · "+x[2]+"</b><span>"+x[3]+"</span></div><button data-task='"+x[1]+"'>"+(st.task==="idle"?"Start":"Active")+" "+Math.round(st.progress)+"%</button></div>";
+  }).join("");
+  document.querySelectorAll("#councilTasks [data-task]").forEach(b=>b.onclick=()=>startTask(b.dataset.task));
+}
+function startTask(role){
+  const st=S.councilTasks[role];if(!st)return;
+  st.task=st.task==="idle"?"active":st.task;toast("Council task active");render();
+}
+function processCouncilTasks(){
+  const map={chancellor:"diplomacy",marshal:"martial",steward:"stewardship",spymaster:"intrigue",chaplain:"learning"};
+  Object.keys(S.councilTasks).forEach(role=>{
+    const st=S.councilTasks[role];if(st.task==="idle")return;
+    const c=char(S.council[role]),skill=c?.[map[role]]||5;st.progress+=Math.max(3,skill*.75);
+    if(st.progress<100)return;
+    st.progress=0;st.task="idle";
+    if(role==="chancellor"){
+      const v=directVassals().sort((a,b)=>opinion(char(a.holder).id)-opinion(char(b.holder).id))[0];
+      if(v){S.relations[v.holder]=Math.min(100,opinion(v.holder)+20);log("The chancellor completed a reconciliation with "+char(v.holder).name+".","court")}
+    }else if(role==="marshal"){
+      const n=180;S.levies=Math.min(S.troopCap,S.levies+n);S.armies[0].men=Math.min(S.troopCap,S.armies[0].men+n);S.armies[0].levy+=n;log("The marshal completed levy preparations. +180 troops.","war")
+    }else if(role==="steward"){
+      S.gold+=25;log("The steward recovered overdue taxes. +25 gold.","court")
+    }else if(role==="spymaster"){
+      const e=WORLD.counties.filter(c=>c.status==="rival");const t=e[Math.floor(Math.random()*e.length)];
+      if(t){S.claimCounty=t.id;log("The spymaster uncovered evidence that strengthens your claim on "+t.name+".","court")}
+    }else{
+      S.piety+=25;S.legitimacy=Math.min(100,S.legitimacy+2);log("The chaplain completed a religious study. +25 piety.","dynasty")
+    }
+  });
+}
 function renderCourt(){
   const rows=[["Chancellor",S.council.chancellor,"Diplomacy"],["Marshal",S.council.marshal,"Army"],["Steward",S.council.steward,"Taxes"],["Spymaster",S.council.spymaster,"Intrigue"],["Chaplain",S.council.chaplain,"Faith"]];
   $("council").innerHTML=rows.map(x=>"<div class='court-row'><div><b>"+esc(x[0])+"</b><span>"+esc(x[2])+"</span></div><strong>"+esc(char(x[1])?.name||"Vacant")+"</strong><em>"+Math.round(((char(x[1])?.diplomacy||0)+(char(x[1])?.stewardship||0)+(char(x[1])?.intrigue||0))/3)+"</em></div>").join("");
   $("vassals").innerHTML=directVassals().map(c=>{const v=char(c.holder);return "<button class='list-row' data-char='"+v.id+"'><span>"+esc(v.name)+"</span><b>"+opinion(v.id)+"</b><small>"+esc(c.name)+" · "+esc(v.title)+"</small></button>"}).join("")||"<div class='empty'>You currently hold all your counties directly.</div>";
-  document.querySelectorAll("#tab-court [data-char]").forEach(b=>b.onclick=()=>showCharacter(b.dataset.char))
+  document.querySelectorAll("#tab-court [data-char]").forEach(b=>b.onclick=()=>showCharacter(b.dataset.char));
+  renderCouncilTasks();
 }
 function renderDynasty(){
   const r=ruler(),members=Object.values(WORLD.characters).filter(c=>c.alive&&c.dynasty===r.dynasty);$("dynastySize").textContent=members.length;$("successionListLaw").textContent=S.succession.replace("_"," ");$("legitimacyDyn").textContent=Math.round(S.legitimacy);
+  $("marriages").innerHTML=(S.marriages||[]).slice(-8).reverse().map(m=>"<div class='marriage-row'><b>"+esc(char(m.a)?.name||"Unknown")+" × "+esc(char(m.b)?.name||"Unknown")+"</b><small>Dynastic tie · "+m.year+"</small></div>").join("")||"<div class='empty'>No recorded dynastic marriages.</div>";
   $("successionList").innerHTML=members.sort((a,b)=>a.age-b.age).map(c=>"<button class='list-row' data-char='"+c.id+"'><span>"+esc(c.name)+"</span><b>"+(c.id===S.rulerId?"RULER":c.id===S.heirId?"HEIR":"FAMILY")+"</b><small>"+c.age.toFixed(0)+" · "+esc(c.title)+"</small></button>").join("");
   document.querySelectorAll("#tab-dynasty [data-char]").forEach(b=>b.onclick=()=>showCharacter(b.dataset.char))
 }
 function renderFactions(){
-  const angry=directVassals().map(c=>char(c.holder)).filter(v=>v&&opinion(v.id)<35);S.factions.liberty=angry.map(v=>v.id);
-  $("factions").innerHTML=angry.length?angry.map(v=>"<div class='faction'><div><b>"+esc(v.name)+"</b><span>Liberty faction</span></div><strong>"+Math.min(95,Math.max(5,Math.round((100-opinion(v.id))*.95)))+"%</strong></div>").join(""):"<div class='empty'>No major faction threatens the crown.</div>"
+  const angry=directVassals().map(c=>char(c.holder)).filter(v=>v&&opinion(v.id)<35);
+  S.factions.liberty=angry.map(v=>v.id);
+  $("factions").innerHTML=angry.length?angry.map(v=>{
+    const strength=Math.min(95,Math.max(5,Math.round((100-opinion(v.id))*.95)));
+    return "<div class='faction'><div><b>"+esc(v.name)+"</b><span>Liberty faction · wants weaker crown control</span></div><strong>"+strength+"%</strong></div>";
+  }).join("")+"<div class='action-grid'><button class='action-btn' data-action='faction_demand'><b>Answer Faction</b><span>Concede or risk a political crisis</span></button></div>":"<div class='empty'>No major faction threatens the crown.</div>";
+  document.querySelectorAll("#tab-realm [data-action]").forEach(b=>b.onclick=()=>action(b.dataset.action));
 }
 function renderWar(){
   if(!S.war){$("warCard").innerHTML="<div class='empty'>No active war. Select a rival county and declare war.</div>";return}
@@ -93,9 +156,18 @@ function renderWar(){
   $("warCard").innerHTML="<div class='war-title'><div><span class='eyebrow'>ACTIVE WAR</span><h3>Conquest of "+esc(t.name)+"</h3></div><b>"+bar+"%</b></div><div class='bar'><i style='width:"+((bar+100)/2)+"%'></i></div><div class='war-grid'><div><span>Army</span><b>"+Math.floor(S.armies[0].men)+"</b></div><div><span>Defender</span><b>"+(t.levy+t.garrison)+"</b></div><div><span>Duration</span><b>"+S.war.months+" mo</b></div><div><span>Siege</span><b>"+Math.round(S.war.siege)+"%</b></div></div><div class='action-grid'><button class='action-btn' data-action='battle'><b>Force Battle</b><span>Use army to gain warscore</span></button><button class='action-btn' data-action='negotiate'><b>Peace / Surrender</b><span>Resolve the war</span></button></div>";
   document.querySelectorAll("#warCard [data-action]").forEach(b=>b.onclick=()=>action(b.dataset.action))
 }
-function renderArmy(){const a=S.armies[0];$("armyCard").innerHTML="<div class='army-row'><div><b>"+esc(a.name)+"</b><span>Commander: "+esc(char(a.commander)?.name||"None")+" · "+esc(county(a.location)?.name||"Unknown")+"</span></div><strong>"+Math.floor(a.men)+"</strong></div><div class='army-details'><div><span>Levy</span><b>"+a.levy+"</b></div><div><span>Men-at-Arms</span><b>"+a.menAtArms+"</b></div><div><span>Morale</span><b>"+Math.round(a.morale)+"%</b></div></div><button id="marshalBtn" class="action-btn"><b>Appoint Marshal</b><span>Put the council marshal in command</span></button>";$("marshalBtn").onclick=()=>action("marshal")}
+function renderArmyOrders(){
+  const a=S.armies[0],targets=WORLD.counties.filter(x=>x.id!==a.location).slice(0,6);
+  $("armyOrders").innerHTML="<div class='order-grid'>"+targets.map(t=>"<button class='order-btn' data-move='"+t.id+"'><b>March to "+esc(t.name)+"</b><span>"+(t.status==="rival"?"Enemy territory":"Friendly territory")+"</span></button>").join("")+"</div>";
+  document.querySelectorAll("[data-move]").forEach(b=>b.onclick=()=>{a.location=b.dataset.move;log(a.name+" began marching toward "+county(a.location).name,"war");toast("Army on the march");render()});
+}
+function renderArmy(){
+  const a=S.armies[0];
+  $("armyCard").innerHTML="<div class='army-row'><div><b>"+esc(a.name)+"</b><span>Commander: "+esc(char(a.commander)?.name||"None")+" · "+esc(county(a.location)?.name||"Unknown")+"</span></div><strong>"+Math.floor(a.men)+"</strong></div><div class='army-details'><div><span>Levy</span><b>"+a.levy+"</b></div><div><span>Men-at-Arms</span><b>"+a.menAtArms+"</b></div><div><span>Morale</span><b>"+Math.round(a.morale)+"%</b></div></div><button id='marshalBtn' class='action-btn'><b>Appoint Marshal</b><span>Put the council marshal in command</span></button>";
+  $("marshalBtn").onclick=()=>action("marshal");
+}
 function renderEvents(){$("events").innerHTML=S.events.map(e=>"<div class='event'><i class='event-dot "+esc(e.kind)+"'></i><div><p>"+esc(e.text)+"</p><time>"+esc(e.when)+"</time></div></div>").join("")}
-function render(){renderTop();renderMap();renderTitles();renderSelected();renderRuler();renderRealm();renderCourt();renderDynasty();renderFactions();renderWar();renderArmy();renderEvents()}
+function render(){renderTop();renderMap();renderTitles();renderSelected();renderRuler();renderRealm();renderCourt();renderDynasty();renderFactions();renderWar();renderArmy();renderArmyOrders();renderEvents()}
 
 function chooseHeir(){
   const fam=Object.values(WORLD.characters).filter(c=>c.alive&&c.dynasty===ruler().dynasty&&c.id!==ruler().id);
@@ -153,7 +225,24 @@ function action(a){
     if(!S.war)return;const t=county(S.war.target),def=t.levy+t.garrison,atk=Math.max(1,S.armies[0].men),ratio=atk/Math.max(1,def),loss=Math.max(45,Math.floor(def*(ratio>.95?.10:.18)));
     S.levies=Math.max(0,S.levies-loss);S.armies[0].men=Math.max(0,S.armies[0].men-loss);S.armies[0].morale=Math.max(0,S.armies[0].morale-(ratio>.9?5:16));
     if(ratio>.9){S.war.score+=18+Math.floor(Math.random()*16);S.war.siege=Math.min(100,S.war.siege+12);log("Battle won near "+t.name+".","war");toast("Victory")}else{S.war.score-=12;log("The army was repulsed at "+t.name+".","war");toast("Defeat")}
-  }else if(a==="negotiate"){
+  }else if(a==="law_succession_equal"){
+  if(S.succession==="equal")return toast("Already using equal inheritance");
+  if(S.prestige<150)return toast("Need 150 prestige");
+  S.prestige-=150;S.succession="equal";S.legitimacy=Math.max(0,S.legitimacy-2);log("The crown adopted equal inheritance.","dynasty");toast("Succession law changed");
+}else if(a==="law_authority_medium"){
+  if(S.crownAuthority==="medium")return toast("Already at Medium Authority");
+  if(S.prestige<180)return toast("Need 180 prestige");
+  S.prestige-=180;S.crownAuthority="medium";S.legitimacy=Math.max(0,S.legitimacy-4);log("The crown raised authority to Medium.","court");toast("Authority raised");
+}else if(a==="faction_demand"){
+  const angry=directVassals().map(c=>char(c.holder)).filter(v=>v&&opinion(v.id)<35);
+  if(!angry.length)return toast("No active faction");
+  const v=angry.sort((a,b)=>opinion(a.id)-opinion(b.id))[0],strength=Math.min(95,Math.max(5,Math.round((100-opinion(v.id))*.95)));
+  if(strength<55){S.relations[v.id]=Math.min(100,opinion(v.id)+30);S.legitimacy=Math.max(0,S.legitimacy-2);log(v.name+" accepted royal concessions and left the faction.","court");toast("Faction appeased")}
+  else{S.legitimacy=Math.max(0,S.legitimacy-10);S.stress+=6;S.levies=Math.max(0,S.levies-150);log(v.name+" refused concessions. The faction crisis drained the realm.","war");toast("Faction crisis")}
+}else if(a==="marshal"){
+  const id=S.council.marshal;if(!char(id))return toast("No marshal available");
+  S.armies[0].commander=id;log(char(id).name+" took command of the Northern Host.","war");toast("Commander appointed");
+}else if(a==="negotiate"){
     if(!S.war)return;const t=county(S.war.target);
     if(S.war.score>=60){t.status="yours";t.holder=S.rulerId;S.prestige+=50;S.legitimacy+=5;log("The enemy surrendered "+t.name+".","war");S.war=null;S.claimCounty=null;toast("War won")}
     else if(S.war.score>=0){log("The enemy refused your peace offer.","war");toast("Peace refused")}
@@ -169,10 +258,10 @@ function monthlyTick(){
   if(S.paused)return;S.day+=5;
   if(S.day>30){S.day=5;S.month++;if(S.month>12){S.month=1;S.year++;Object.values(WORLD.characters).forEach(c=>{if(c.alive)c.age+=1});yearTick()}}
   S.gold+=Math.max(0,realmTax()*.10);S.levies=Math.min(S.troopCap,S.levies+Math.floor(totalLevySource()*.018));S.armies.forEach(a=>{if(a.raised)a.morale=Math.min(100,a.morale+.7)});
-  if(S.war){S.war.months++;const t=county(S.war.target),atk=Math.max(1,S.armies[0].men),def=t.levy+t.garrison,ratio=atk/Math.max(1,def);S.war.score+=ratio>.95?5:ratio<.55?-4:1;
+  if(S.war){S.war.months++;const t=county(S.war.target),army=S.armies[0],atk=Math.max(1,army.men),def=t.levy+t.garrison,ratio=atk/Math.max(1,def);if(army.location===t.id)S.war.siege=Math.min(100,(S.war.siege||0)+(ratio>.85?8:3));S.war.score+=ratio>.95?5:ratio<.55?-4:1+(S.war.siege>=100?3:0);
     if(S.war.score>=100){t.status="yours";t.holder=S.rulerId;S.prestige+=60;S.war=null;S.claimCounty=null;log("The enemy accepted total surrender. "+t.name+" was annexed.","war");toast("Total victory")}
     else if(S.war&&S.war.months>24&&S.war.score<0){S.war=null;log("War exhaustion forced an unfavorable peace.","war")}}
-  familyTick();aiTick();saveSilent();render()
+  processCouncilTasks();familyTick();aiTick();saveSilent();render()
 }
 function yearTick(){
   S.gold+=Math.max(0,realmTax());S.prestige+=2;S.piety+=1;S.legitimacy=Math.min(100,S.legitimacy+1);

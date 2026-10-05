@@ -61,17 +61,17 @@ function load(){
     n.armies=Array.isArray(n.armies)&&n.armies.length?n.armies:freshState().armies;
     n.council=n.council||freshState().council;n.relations=n.relations||{};
     Object.values(n.customCharacters).forEach(c=>{c.children=c.children||[];c.health=c.health??100;c.fertility=c.fertility??.7});
-    S=n;applyWorldState();rebuildHeir();return n;
+    return n;
   }catch(e){return null}
 }
 let S=load()||freshState();
 if(!S.titleHolders)S.titleHolders=freshState().titleHolders;
 if(!S.countyState)S.countyState={};
-applyWorldState();
+applyWorldState();rebuildHeir();
 
 function saveSilent(){syncWorldState();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
 function save(){saveSilent();toast("Game saved")}
-function reset(){localStorage.removeItem(KEY);localStorage.removeItem("dynasty_realms_save_v03");localStorage.removeItem("dynasty_realms_save_v02");S=freshState();WORLD.characters.c_edric.children=["c_alina","c_rowan"];WORLD.characters.c_mara.children=["c_alina","c_rowan"];applyWorldState();render();toast("New campaign started")}
+function reset(){localStorage.removeItem(KEY);localStorage.removeItem("dynasty_realms_save_v03");localStorage.removeItem("dynasty_realms_save_v02");location.reload()}
 function toast(msg){const t=$("toast");t.textContent=msg;t.classList.add("show");clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove("show"),1700)}
 function log(text,kind="court"){S.events.unshift({text,when:"Now",kind});S.events=S.events.slice(0,16)}
 function ruler(){return char(S.rulerId)}
@@ -272,7 +272,7 @@ function renderWar(){
   const wars=S.wars;
   if(!wars.length){$("warCard").innerHTML="<div class='empty'>No active war.</div>";return}
   $("warCard").innerHTML=wars.map(w=>{
-    const t=county(w.target),bar=clamp(w.score,-100,100),army=S.armies[0];
+    const t=county(w.target),bar=clamp(w.score,-100,100),army=S.armies.find(a=>a.raised)||S.armies[0];
     return "<div class='war-card'><div class='war-title'><div><span class='eyebrow'>"+esc(w.kind==="revolt"?"INTERNAL WAR":"ACTIVE WAR")+"</span><h3>"+esc(w.name)+"</h3><span class='muted'>"+esc(t?.name||"Unknown target")+"</span></div><b>"+Math.round(bar)+"%</b></div><div class='bar'><i style='width:"+((bar+100)/2)+"%'></i></div><div class='war-grid'><div><span>Your army</span><b>"+Math.floor(army?.men||0)+"</b></div><div><span>Enemy</span><b>"+Math.floor(w.kind==="revolt"?w.enemy:enemyPower(t))+"</b></div><div><span>Duration</span><b>"+w.months+" mo</b></div><div><span>Siege</span><b>"+Math.round(w.siege)+"%</b></div><div><span>Target fort</span><b>"+(t?.fort||0)+"</b></div><div><span>Claim</span><b>"+(w.kind==="revolt"?"—":(S.claimCounty===w.target?"Valid":"Needed"))+"</b></div></div><div class='action-grid'><button class='action-btn' data-war='"+w.id+"' data-war-action='battle'><b>Force Battle</b><span>Fight using the main army</span></button><button class='action-btn' data-war='"+w.id+"' data-war-action='peace'><b>"+(w.kind==="revolt"?"Offer Terms":"Peace / Surrender")+"</b><span>Resolve the war</span></button></div></div>";
   }).join("");
   document.querySelectorAll("[data-war-action]").forEach(b=>b.onclick=()=>warAction(b.dataset.war,b.dataset.warAction));
@@ -349,7 +349,7 @@ function monthlyWar(w){
 }
 function familyTick(){
   const r=ruler(),sp=char(r.spouse);
-  if(sp&&r.age>=16&&sp.age>=16&&r.age<55&&sp.age<50&&!sp.spouse?false:sp&&r.age<55&&sp.age<50){
+  if(sp&&r.age>=16&&sp.age>=16&&r.age<55&&sp.age<50){
     const chance=.018*(r.fertility||.7)*(sp.fertility||.7);
     if(Math.random()<chance)newChild(r.id,sp.id);
   }
@@ -434,8 +434,8 @@ function action(a){
     if(S.wars.some(w=>w.kind!=="revolt"))return toast("Already at external war");
     if(c.status!=="rival")return toast("That county is not hostile");
     if(!S.claimCounty||S.claimCounty!==c.id)return toast("Need a valid claim");
-    const playerCounty=WORLD.counties.find(x=>x.holder===S.rulerId);
-    if(!playerCounty||!(WORLD.adjacency[playerCounty.id]||[]).includes(c.id))return toast("Target is not adjacent to your domain");
+    const adjacent=ownedCounties().some(pc=>(WORLD.adjacency[pc.id]||[]).includes(c.id));
+    if(!adjacent)return toast("Target is not adjacent to your domain");
     if(playerPower()<700)return toast("Need 700 troops in the field");
     S.wars.push({id:"w_"+Date.now().toString(36),kind:"external",name:"Conquest of "+c.name,target:c.id,score:0,months:0,siege:0,enemy:enemyPower(c),rebels:[]});log("War declared for "+c.name+".","war")
   }else if(a==="law_succession_equal"){
@@ -461,7 +461,7 @@ function monthlyArmyTick(){
 function aiTick(){
   WORLD.characters && Object.values(WORLD.characters).filter(v=>v.alive&&v.id!==S.rulerId).forEach(v=>{
     if(v.age>=65&&Math.random()<.012)characterDeath(v,"old age");
-    if(v.spouse&&v.age<50&&char(v.spouse)?.age<50&&Math.random()<.008)newChild(v.id,v.spouse);
+    if(v.spouse&&v.id<v.spouse&&v.age<50&&char(v.spouse)?.age<50&&Math.random()<.008)newChild(v.id,v.spouse);
   });
   WORLD.counties.filter(c=>c.status==="rival").forEach(c=>{const v=char(c.holder);if(v&&Math.random()<.12){c.levy+=18;c.garrison+=6;c.control=clamp(c.control+1,0,100)}});
   directVassalCharacters().forEach(v=>{if(opinion(v.id)<0&&Math.random()<.08)log(v.name+" is gathering supporters for a faction.","court")});

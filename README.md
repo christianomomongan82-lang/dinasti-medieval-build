@@ -1,33 +1,40 @@
 # Dynasty Realms
 
-Original mobile-first grand-strategy and dynasty simulator.
+## 0.2 Core Simulation Milestone
 
-Current vertical slice:
-- feudal hierarchy: Barony -> County -> Duchy -> Kingdom
-- interactive county map
-- time progression and speed controls
-- gold, prestige, piety and levies
-- county development, taxation and levies
-- diplomacy, claims and wars
-- ruler, spouse, heir and dynasty panel
-- court event log
-- Android CI producing debug APK and release AAB
+Dynasty Realms is an original mobile-first grand-strategy/dynasty simulator built around a feudal title hierarchy:
 
-Build pipeline:
-GitHub Actions installs dependencies, creates the Android wrapper, syncs the web game, then builds APK and AAB artifacts.
+Barony -> County -> Duchy -> Kingdom
 
-Next gameplay milestones:
-1. real title ownership and vassal hierarchy
-2. character genealogy, marriage, children and succession
-3. character attributes, traits, stress, health and death
-4. vassal contracts, factions and council
-5. armies, commanders, warscore, battles and sieges
-6. laws, culture and religion
-7. AI rulers with goals, alliances and rivalries
-8. procedural events and long-term narratives
-9. save/load and multiple campaign starts
-10. original art, sound, monetization and Play Store release
+The 0.2 core connects the major systems instead of treating them as isolated UI demos.
+
+### Systems now connected
+
+- Feudal title hierarchy and county ownership
+- Domain income, development, garrisons and levies
+- Character attributes and traits
+- Ruler, spouse, heirs and dynasty members
+- Male-preference succession logic
+- Aging, stress and ruler death/succession
+- Council positions with named characters
+- Vassal opinion and hostile-faction pressure
+- Claims, diplomacy, gifts, marriages and invitations
+- War declaration, battles, warscore and peace
+- Monthly and yearly simulation ticks
+- Procedural court/war/dynasty events
+- Save/load through mobile local storage
+- Mobile Realm / Court / Dynasty / War screens
+
+### Design direction
+
+The game is inspired by the broad medieval dynasty grand-strategy genre but is an original work: it does not use Crusader Kings code, assets, branding, characters, or proprietary data.
+
+### Android
+
+The GitHub Actions workflow builds a debug APK and a release AAB through Capacitor.
 
 Package id: com.dynastyrealms.game
 
-The project is an original work and does not include Crusader Kings code, assets, branding or names.
+### Next major milestone
+
+Expand the current simulation with deeper genealogy, marriages and children, title grants and revocation, faction demands, council tasks, army composition, commanders, siege state, culture/religion systems, AI realm goals, richer event chains, campaign starts, and production signing/monetization.

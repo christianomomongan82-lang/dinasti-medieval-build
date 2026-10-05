@@ -1,4 +1,4 @@
-const KEY="dynasty_realms_save_v07";
+const KEY="dynasty_realms_save_v08";
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const char=id=>WORLD.characters[id];
@@ -9,7 +9,7 @@ const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
 const pick=a=>a[Math.floor(Math.random()*a.length)];
 
 function freshState(){
-  return {version:7,year:1066,month:9,day:3,paused:false,speed:1,selectedCounty:"c_northwatch",
+  return {version:8,year:1066,month:9,day:3,paused:false,speed:1,selectedCounty:"c_northwatch",
     gold:72,prestige:85,piety:40,legitimacy:78,stress:18,levies:1280,troopCap:1900,
     succession:"male_preference",crownAuthority:"low",culture:"Arvendic",faith:"Old Church",
     rulerId:"c_edric",heirId:"c_rowan",claimCounty:null,
@@ -18,7 +18,7 @@ function freshState(){
     marriages:[{a:"c_edric",b:"c_mara",year:1062}],children:["c_alina","c_rowan"],customCharacters:{},
     titleHolders:{k_arvend:"c_edric",d_north:"c_edric",d_east:"c_roderic",d_gold:"c_alden"},
     countyState:{},
-    factions:[],wars:[],claims:[],alliances:[],vassalContracts:{},aiAgendas:{},decisions:{feast:0,hunt:0,pilgrimage:0,muster:0,arts:0},
+    factions:[],wars:[],claims:[],alliances:[],vassalContracts:{},aiAgendas:{},decisions:{feast:0,hunt:0,pilgrimage:0,muster:0,arts:0},secrets:{},prisoners:[],plots:[],educations:{},relationTags:{},eventChain:null,
     councilTasks:{chancellor:{task:"idle",progress:0},marshal:{task:"idle",progress:0},steward:{task:"idle",progress:0},spymaster:{task:"idle",progress:0},chaplain:{task:"idle",progress:0}},
     armies:[{id:"a_main",name:"Northern Host",men:1000,levy:850,menAtArms:150,morale:100,commander:"c_edric",location:"c_northwatch",supply:100,fatigue:0,raised:true}],
     events:[
@@ -50,7 +50,7 @@ function load(){
     const x=JSON.parse(raw),n=freshState();Object.assign(n,x,{version:7});
     n.events=Array.isArray(n.events)?n.events:n.events||[];
     n.claims=Array.isArray(n.claims)?n.claims:(x.claimCounty?[x.claimCounty]:[]);
-    n.decisions=n.decisions&&typeof n.decisions==="object"?n.decisions:{feast:0,hunt:0,pilgrimage:0,muster:0,arts:0};
+    n.decisions=n.decisions&&typeof n.decisions==="object"?n.decisions:{feast:0,hunt:0,pilgrimage:0,muster:0,arts:0};n.secrets=n.secrets&&typeof n.secrets==="object"?n.secrets:{};n.prisoners=Array.isArray(n.prisoners)?n.prisoners:[];n.plots=Array.isArray(n.plots)?n.plots:[];n.educations=n.educations&&typeof n.educations==="object"?n.educations:{};n.relationTags=n.relationTags&&typeof n.relationTags==="object"?n.relationTags:{};n.eventChain=n.eventChain||null;
     n.alliances=Array.isArray(n.alliances)?n.alliances:[];
     n.vassalContracts=n.vassalContracts&&typeof n.vassalContracts==="object"?n.vassalContracts:{};
     n.aiAgendas=n.aiAgendas&&typeof n.aiAgendas==="object"?n.aiAgendas:{};
@@ -102,6 +102,84 @@ function decision(id){
   render();saveSilent();
 }
 function tickDecisions(){Object.keys(S.decisions||{}).forEach(k=>{S.decisions[k]=Math.max(0,(S.decisions[k]||0)-1)})}
+function normalizeCourtData(st=S){
+  st.secrets=st.secrets&&typeof st.secrets==="object"?st.secrets:{};
+  st.prisoners=Array.isArray(st.prisoners)?st.prisoners.filter(id=>char(id)):[];st.plots=Array.isArray(st.plots)?st.plots:[];
+  st.educations=st.educations&&typeof st.educations==="object"?st.educations:{};st.relationTags=st.relationTags&&typeof st.relationTags==="object"?st.relationTags:{};
+  Object.values(WORLD.characters).forEach(c=>{c.stress=c.stress??0;c.health=c.health??100});
+}
+function relationTag(id){return S.relationTags[id]||""}
+function setRelationTag(id,tag){
+  if(!char(id))return;if(tag==="")delete S.relationTags[id];else S.relationTags[id]=tag;
+  log("The court now regards "+char(id).name+" as a "+tag+".","court");render();saveSilent();
+}
+function courtIntrigue(){return char(S.council.spymaster)?.intrigue||ruler()?.intrigue||5}
+function makeSecret(id){
+  if(!char(id)||char(id).id===S.rulerId)return;
+  const strength=clamp(35+(char(id).intrigue||5)*3+Math.floor(Math.random()*25),25,90);
+  S.secrets[id]={strength,discovered:S.year};
+  log("A compromising secret about "+char(id).name+" was uncovered.","court");toast("Secret discovered");render();saveSilent();
+}
+function startPlot(type,id){
+  const target=char(id);if(!target||target.id===S.rulerId||!target.alive)return toast("Invalid target");
+  if(S.prisoners.includes(id))return toast("That character is already imprisoned");
+  if(S.plots.some(p=>p.target===id))return toast("You already have a plot against them");
+  const cost=type==="murder"?35:15;if(S.gold<cost)return toast("Need "+cost+" gold");
+  if(type==="murder"&&(target.dynasty===ruler().dynasty||target.id===ruler().spouse||target.id===S.heirId))return toast("That target is too dangerous");
+  S.gold-=cost;S.plots.push({id:"p_"+Date.now().toString(36),type,target:id,progress:0,exposure:10,months:0});
+  log("A "+type+" plot was organized against "+target.name+".","court");toast("Plot started");render();saveSilent();
+}
+function processPlots(){
+  S.plots.slice().forEach(p=>{
+    const t=char(p.target);if(!t||!t.alive){S.plots=S.plots.filter(x=>x.id!==p.id);return}
+    p.months++;p.progress+=Math.max(4,courtIntrigue()*.7+(relationTag(t.id)==="rival"?2:0));p.exposure=clamp(p.exposure+(Math.random()<.12?4:-1),0,100);
+    if(p.progress<100)return;
+    const success=Math.random()<clamp(.48+courtIntrigue()*.025-p.exposure*.002,0.12,0.9);
+    if(success){if(p.type==="murder"){characterDeath(t,"a clandestine plot");log("The murder plot against "+t.name+" succeeded.","war")}else{makeSecret(t.id);S.relations[t.id]=clamp(opinion(t.id)-25,-100,100)}S.plots=S.plots.filter(x=>x.id!==p.id)}
+    else{S.stress=clamp(S.stress+8,0,100);S.legitimacy=clamp(S.legitimacy-4,0,100);setRelationTag(t.id,"rival");log("A plot against "+t.name+" was exposed. The crown's reputation suffered.","war");toast("Plot exposed");S.plots=S.plots.filter(x=>x.id!==p.id)}
+  });
+}
+function imprison(id){
+  const t=char(id);if(!t||!t.alive||t.id===S.rulerId)return;
+  if(S.prisoners.includes(id))return toast("Already imprisoned");
+  const secret=S.secrets[id]?.strength||0;const chance=clamp(.28+(courtIntrigue()-(t.intrigue||5))*.04+secret*.004+(S.crownAuthority==="medium"?.12:0),.08,.9);
+  if(Math.random()>chance){S.stress=clamp(S.stress+6,0,100);S.relations[id]=clamp(opinion(id)-20,-100,100);log("The attempt to imprison "+t.name+" failed.","court");toast("Arrest failed");render();saveSilent();return}
+  S.prisoners.push(id);S.relations[id]=clamp(opinion(id)-30,-100,100);log(t.name+" was placed in the royal prison.","court");toast("Character imprisoned");render();saveSilent();
+}
+function releasePrisoner(id){S.prisoners=S.prisoners.filter(x=>x!==id);if(char(id))log(char(id).name+" was released from the royal prison.","court");render();saveSilent()}
+function ransomPrisoner(id){
+  if(!S.prisoners.includes(id))return;const fee=25+(char(id)?.age||20);if(S.gold<fee)return toast("Need "+fee+" gold");
+  S.gold-=fee;S.prisoners=S.prisoners.filter(x=>x!==id);S.prestige+=5;log(char(id).name+" paid "+fee+" gold for release.","court");toast("Ransom collected");render();saveSilent();
+}
+function setEducation(childId,focus){
+  const child=char(childId);if(!child||!child.alive||child.age<6||child.age>=16)return toast("Education is only for ages 6–15");
+  const tutors=Object.values(WORLD.characters).filter(c=>c.alive&&c.age>=16&&c.id!==child.id).sort((a,b)=>(b[focus]||0)-(a[focus]||0)),tutor=tutors[0]||ruler();
+  S.educations[childId]={tutor:tutor.id,focus,progress:S.educations[childId]?.progress||0};log(child.name+" is now studying "+focus+" under "+tutor.name+".","dynasty");toast("Education assigned");render();saveSilent();
+}
+function processEducation(){
+  Object.entries(S.educations||{}).forEach(([id,e])=>{const c=char(id),t=char(e.tutor);if(!c||!t||!c.alive||c.age>=16){delete S.educations[id];return}e.progress+=Math.max(5,(t[e.focus]||5)*.8);if(e.progress>=100){c[e.focus]=Math.min(20,(c[e.focus]||3)+1);e.progress=0;log(c.name+" improved in "+e.focus+".","dynasty")}});
+}
+function triggerCourtEvent(){
+  if(S.eventChain)return;const roll=Math.floor(Math.random()*3);
+  if(roll===0)S.eventChain={id:"inheritance",step:1,title:"An Inheritance Dispute",body:"A minor lord claims your legal office mishandled an inheritance. How will you respond?",options:["Pay the disputed sum.","Back the old charter.","Threaten the claimant."]};
+  if(roll===1)S.eventChain={id:"smugglers",step:1,title:"Smugglers at the River Gate",body:"Your guards caught merchants moving untaxed goods through Ironford.",options:["Confiscate the cargo.","Fine them lightly.","Let them pass for a favor."]};
+  if(roll===2)S.eventChain={id:"scholar",step:1,title:"A Scholar at Court",body:"A traveling scholar offers to teach one of your children.",options:["Accept the tutor.","Question the scholar.","Send them away."]};
+  S.paused=true;renderEventChain();
+}
+function renderEventChain(){
+  if(!S.eventChain)return;const e=S.eventChain;$("modal").classList.add("open");
+  $("modalBody").innerHTML="<div class='modal-head'><div><span class='eyebrow'>COURT EVENT</span><h2>"+esc(e.title)+"</h2></div><button id='closeModal'>×</button></div><p class='muted'>"+esc(e.body)+"</p><div class='event-options'>"+e.options.map((x,i)=>"<button class='action-btn' data-event-option='"+i+"'><b>"+esc(x)+"</b><span>Choose this path</span></button>").join("")+"</div>";
+  $("closeModal").onclick=()=>{};document.querySelectorAll("[data-event-option]").forEach(b=>b.onclick=()=>resolveCourtEvent(+b.dataset.eventOption));
+}
+function resolveCourtEvent(i){
+  const e=S.eventChain;if(!e)return;
+  if(e.id==="inheritance"&&e.step===1){if(i===0){S.gold=Math.max(0,S.gold-18);S.legitimacy=clamp(S.legitimacy+2,0,100);e.step=2;e.title="The Claimant Accepts";e.body="The claimant accepts your settlement, but asks for a seat on the council.";e.options=["Grant the seat.","Refuse politely."]}else if(i===1){S.prestige+=15;e.step=2;e.title="The Charter Reaffirmed";e.body="Old records support the crown, but a rival lord now resents the ruling.";e.options=["Sway the rival.","Ignore the grievance."]}else{S.stress=clamp(S.stress+10,0,100);e.step=2;e.title="The Claimant Threatens Revolt";e.body="Your threat worked, but the claimant's family gathers supporters.";e.options=["Concede a little.","Stand firm."]}}
+  else if(e.id==="smugglers"&&e.step===1){if(i===0){S.gold+=30;S.stress=clamp(S.stress+5,0,100);e.step=2;e.title="Confiscated Cargo";e.body="The merchants demand compensation for their seized goods.";e.options=["Pay compensation.","Keep the cargo."]}else if(i===1){S.gold+=10;S.legitimacy=clamp(S.legitimacy+1,0,100);e.step=2;e.title="A Quiet Fine";e.body="The merchants pay, but your guards question the policy.";e.options=["Reward the guards.","Dismiss their concern."]}else{S.relations.c_bren=clamp((S.relations.c_bren||0)+12,-100,100);e.step=2;e.title="A Favor Collected";e.body="The merchants owed a favor to one of your allies.";e.options=["Call in the favor.","Leave the debt untouched."]}}
+  else if(e.id==="scholar"&&e.step===1){if(i===0){const k=ruler().children?.find(id=>char(id)?.age>=6&&char(id)?.age<16);if(k)setEducation(k,"learning");S.prestige+=8}else if(i===1){S.piety+=10;S.stress=clamp(S.stress+2,0,100)}else{S.prestige=Math.max(0,S.prestige-4)}S.eventChain=null;S.paused=false;$("modal").classList.remove("open");log("The court resolved the scholar's visit.","court");render();saveSilent();return}
+  else if(e.step===2){if(i===0){S.prestige+=8;S.relations.c_bren=clamp((S.relations.c_bren||0)+5,-100,100)}else{S.stress=clamp(S.stress+4,0,100)}S.eventChain=null;S.paused=false;$("modal").classList.remove("open");log("The court event reached its conclusion.","court");render();saveSilent();return}
+  renderEventChain();render();saveSilent();
+}
+
 function normalizeDiplomacy(){
   S.claims=Array.isArray(S.claims)?S.claims.filter(id=>county(id)&&county(id).status!=="yours"):[];
   S.claimCounty=S.claims[0]||null;
@@ -267,11 +345,16 @@ function processCouncilTasks(){
   });
 }
 function renderCourt(){
+  $("secrets").innerHTML=Object.keys(S.secrets||{}).map(id=>char(id)).filter(Boolean).map(v=>"<button class='list-row' data-char='"+v.id+"'><span>"+esc(v.name)+"</span><b>SECRET</b><small>Leverage "+S.secrets[v.id].strength+" · "+(relationTag(v.id)||"neutral")+"</small></button>").join("")||"<div class='empty'>No compromising secrets are known.</div>";
+  $("plots").innerHTML=(S.plots||[]).map(p=>{const v=char(p.target);return v?"<div class='plot-row'><div><b>"+esc(p.type)+" against "+esc(v.name)+"</b><small>Progress "+Math.round(p.progress)+"% · exposure "+Math.round(p.exposure)+"%</small></div><strong>"+p.months+"m</strong></div>":""}).join("")||"<div class='empty'>No active plots.</div>";
+  $("prisoners").innerHTML=(S.prisoners||[]).map(id=>char(id)).filter(Boolean).map(v=>"<div class='prisoner-row'><button class='list-row' data-char='"+v.id+"'><span>"+esc(v.name)+"</span><b>PRISONER</b><small>"+esc(v.title)+"</small></button><button class='order-btn' data-ransom='"+v.id+"'>Ransom</button></div>").join("")||"<div class='empty'>The royal prison is empty.</div>";
   const rows=[["Chancellor",S.council.chancellor,"Diplomacy"],["Marshal",S.council.marshal,"Army"],["Steward",S.council.steward,"Taxes"],["Spymaster",S.council.spymaster,"Intrigue"],["Chaplain",S.council.chaplain,"Faith"]];
   $("council").innerHTML=rows.map(x=>"<div class='court-row'><div><b>"+esc(x[0])+"</b><span>"+esc(x[2])+"</span></div><strong>"+esc(char(x[1])?.name||"Vacant")+"</strong><em>"+(char(x[1])?.[x[0]==="Chancellor"?"diplomacy":x[0]==="Marshal"?"martial":x[0]==="Steward"?"stewardship":x[0]==="Spymaster"?"intrigue":"learning"]||0)+"</em></div>").join("");
   $("vassals").innerHTML=directVassalCharacters().map(v=>{const ct=contract(v.id);return "<div class='vassal-row'><button class='list-row' data-char='"+v.id+"'><span>"+esc(v.name)+"</span><b>"+opinion(v.id)+"</b><small>"+esc(titleNameForHolder(v.id))+" · "+esc(v.title)+" · Tax "+ct.tax+" · Levy "+ct.levy+"</small></button><button class='contract-btn' data-contract='"+v.id+"'>Contract</button></div>"}).join("")||"<div class='empty'>No direct county vassals report to your crown.</div>";
   document.querySelectorAll("#tab-court [data-char]").forEach(b=>b.onclick=()=>showCharacter(b.dataset.char));
-  document.querySelectorAll("[data-contract]").forEach(b=>b.onclick=()=>showContractModal(b.dataset.contract));renderCouncilTasks();
+  document.querySelectorAll("[data-contract]").forEach(b=>b.onclick=()=>showContractModal(b.dataset.contract));
+  document.querySelectorAll("[data-ransom]").forEach(b=>b.onclick=()=>ransomPrisoner(b.dataset.ransom));
+  renderCouncilTasks();
 }
 function titleNameForHolder(id){const c=WORLD.counties.find(x=>x.holder===id);return c?c.name:"Court";}
 
@@ -599,7 +682,7 @@ function monthlyTick(){
   if(S.paused)return;
   S.day+=5;if(S.day>30){S.day=5;S.month++;if(S.month>12){S.month=1;S.year++;Object.values(WORLD.characters).forEach(c=>{if(c.alive)c.age+=1});yearTick()}}
   S.gold+=Math.max(0,realmTax()*.10);S.levies=Math.min(S.troopCap,S.levies+Math.floor(totalLevySource()*.018));normalizeEconomy();
-  monthlyArmyTick();processCouncilTasks();familyTick();aiTick();
+  monthlyArmyTick();processCouncilTasks();processEducation();processPlots();familyTick();aiTick();if(!S.eventChain&&Math.random()<.018)triggerCourtEvent();
   S.wars.slice().forEach(w=>monthlyWar(w));
   updateFactions();S.factions.forEach(f=>{if(f.ultimatum>0&&f.strength>=80){f.ultimatum--;if(f.ultimatum===0){createRevolt(f);S.factions=S.factions.filter(x=>x.id!==f.id);log("The faction ultimatum expired. War has begun.","war")}}});
   tickDecisions();rebuildHeir();saveSilent();render();
@@ -615,11 +698,33 @@ function yearTick(){
     else if(r===5){S.gold=Math.max(0,S.gold-18);S.stress=clamp(S.stress+8,0,100);log("A court scandal cost the crown money and composure.","court")}
     else{S.prestige+=10;log("A tournament brought fame to House "+ruler().dynasty+".","dynasty")}}
 }
+function characterAction(id,act){
+  if(act==="friend")setRelationTag(id,relationTag(id)==="friend"?"":"friend");
+  else if(act==="rival")setRelationTag(id,relationTag(id)==="rival"?"":"rival");
+  else if(act==="imprison")imprison(id);
+  else if(act==="plot")startPlot("fabricate",id);
+  else if(act==="murder")startPlot("murder",id);
+  else if(act==="release")releasePrisoner(id);
+  else if(act==="ransom")ransomPrisoner(id);
+  else if(act==="educate")showEducationModal(id);
+}
+function showEducationModal(id){
+  const c=char(id);if(!c||c.age<6||c.age>=16)return toast("Education is only for ages 6–15");$("modal").classList.add("open");
+  $("modalBody").innerHTML="<div class='modal-head'><div><span class='eyebrow'>EDUCATION</span><h2>"+esc(c.name)+"</h2></div><button id='closeModal'>×</button></div><p class='muted'>Choose a focus for the child's education. The best available adult tutor is assigned automatically.</p><div class='event-options'>"+["martial","diplomacy","stewardship","intrigue","learning"].map(f=>"<button class='action-btn' data-education-focus='"+f+"'><b>"+f+"</b><span>Train this attribute</span></button>").join("")+"</div>";
+  $("closeModal").onclick=()=>$("modal").classList.remove("open");document.querySelectorAll("[data-education-focus]").forEach(b=>b.onclick=()=>setEducation(id,b.dataset.educationFocus));
+}
 function showCharacter(id){
   const c=char(id);if(!c)return;$("modal").classList.add("open");
   const mother=char(c.mother),father=char(c.father),sp=char(c.spouse),kids=(c.children||[]).map(char).filter(Boolean);
-  $("modalBody").innerHTML="<div class='modal-head'><div><span class='eyebrow'>CHARACTER</span><h2>"+esc(c.name)+"</h2></div><button id='closeModal'>×</button></div><p class='muted'>"+esc(c.title)+" · "+esc(c.dynasty)+" · age "+c.age.toFixed(1)+" · health "+Math.round(c.health||0)+"</p><div class='char-grid'>"+[["Martial",c.martial],["Diplomacy",c.diplomacy],["Stewardship",c.stewardship],["Intrigue",c.intrigue],["Learning",c.learning],["Opinion",opinion(id)]].map(x=>"<div><span>"+x[0]+"</span><b>"+x[1]+"</b></div>").join("")+"</div><div class='traits'>"+(c.traits||[]).map(t=>"<span class='trait'>"+esc(t)+"</span>").join("")+"</div><div class='lineage'><span>Father</span><b>"+esc(father?.name||"Unknown")+"</b><span>Mother</span><b>"+esc(mother?.name||"Unknown")+"</b><span>Spouse</span><b>"+esc(sp?.name||"None")+"</b><span>Children</span><b>"+(kids.map(k=>esc(k.name)).join(", ")||"None")+"</b><span>Status</span><b>"+(c.alive?"Living":"Dead")+"</b></div>";
-  $("closeModal").onclick=()=>$("modal").classList.remove("open");
+  const prison=S.prisoners.includes(id),secret=S.secrets[id],plot=S.plots.find(p=>p.target===id),tag=relationTag(id);
+  let buttons="<button class='order-btn' data-char-action='friend'>"+(tag==="friend"?"Unfriend":"Befriend")+"</button><button class='order-btn' data-char-action='rival'>"+(tag==="rival"?"Drop Rivalry":"Mark Rival")+"</button>";
+  if(secret)buttons+="<button class='order-btn' data-char-action='imprison'>Imprison</button>";
+  buttons+="<button class='order-btn' data-char-action='plot'>Intrigue Plot</button>";
+  if(c.id!==S.rulerId&&c.age>=16&&c.dynasty!==ruler().dynasty)buttons+="<button class='order-btn' data-char-action='murder'>Murder Plot</button>";
+  if(c.age>=6&&c.age<16)buttons+="<button class='order-btn' data-char-action='educate'>Educate</button>";
+  if(prison)buttons+="<button class='order-btn' data-char-action='release'>Release</button><button class='order-btn' data-char-action='ransom'>Ransom</button>";
+  $("modalBody").innerHTML="<div class='modal-head'><div><span class='eyebrow'>CHARACTER</span><h2>"+esc(c.name)+"</h2></div><button id='closeModal'>×</button></div><p class='muted'>"+esc(c.title)+" · "+esc(c.dynasty)+" · age "+c.age.toFixed(1)+" · health "+Math.round(c.health||0)+"</p><div class='char-grid'>"+[["Martial",c.martial],["Diplomacy",c.diplomacy],["Stewardship",c.stewardship],["Intrigue",c.intrigue],["Learning",c.learning],["Opinion",opinion(id)]].map(x=>"<div><span>"+x[0]+"</span><b>"+x[1]+"</b></div>").join("")+"</div><div class='traits'>"+(c.traits||[]).map(t=>"<span class='trait'>"+esc(t)+"</span>").join("")+"</div><div class='lineage'><span>Father</span><b>"+esc(father?.name||"Unknown")+"</b><span>Mother</span><b>"+esc(mother?.name||"Unknown")+"</b><span>Spouse</span><b>"+esc(sp?.name||"None")+"</b><span>Children</span><b>"+(kids.map(k=>esc(k.name)).join(", ")||"None")+"</b><span>Status</span><b>"+(c.alive?"Living":"Dead")+(prison?" · Prisoner":"")+"</b><span>Secret</span><b>"+(secret?"Known · strength "+secret.strength:"None known")+"</b><span>Relation</span><b>"+(tag||"Unmarked")+"</b><span>Plot</span><b>"+(plot?plot.type+" · "+Math.round(plot.progress)+"%":"None")+"</b></div><div class='character-actions'>"+buttons+"</div>";
+  $("closeModal").onclick=()=>$("modal").classList.remove("open");document.querySelectorAll("[data-char-action]").forEach(b=>b.onclick=()=>characterAction(id,b.dataset.charAction));
 }
 $("pauseBtn").onclick=()=>{S.paused=!S.paused;$("pauseBtn").textContent=S.paused?"▶":"Ⅱ"};
 $("saveBtn").onclick=save;$("newGameBtn").onclick=reset;

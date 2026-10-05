@@ -1,0 +1,9 @@
+{
+  "name":"dynasty-realms",
+  "version":"0.1.0",
+  "private":true,
+  "description":"A mobile-first grand strategy and dynasty simulator.",
+  "scripts":{"build:web":"node -e \"console.log('Static web app ready')\"","cap:add":"cap add android","cap:sync":"cap sync android","cap:open":"cap open android"},
+  "dependencies":{"@capacitor/android":"8.5.2","@capacitor/core":"8.5.2"},
+  "devDependencies":{"@capacitor/cli":"8.5.2"}
+}

@@ -12,7 +12,7 @@ function freshState(){
     rulerId:"c_edric",heirId:"c_rowan",claimCounty:null,
     council:{chancellor:"c_mara",marshal:"c_bren",steward:"c_elira",spymaster:"c_merek",chaplain:"c_sera"},
     relations:{c_bren:61,c_elira:74,c_roderic:-24,c_merek:-10,c_sera:18,c_alden:25,c_hadrik:42},
-    marriages:[],children:["c_alina","c_rowan"],titles:{ownedDuchies:["d_north"],kingdom:"k_arvend"},
+    marriages:[],children:["c_alina","c_rowan"],customCharacters:{},titles:{ownedDuchies:["d_north"],kingdom:"k_arvend"},
     factions:{liberty:[],demands:[],accepted:false},councilTasks:{chancellor:{task:"idle",progress:0},marshal:{task:"idle",progress:0},steward:{task:"idle",progress:0},spymaster:{task:"idle",progress:0},chaplain:{task:"idle",progress:0}},war:null,
     armies:[{id:"a_main",name:"Northern Host",men:1000,levy:850,menAtArms:150,morale:100,commander:"c_edric",location:"c_northwatch",raised:true}],
     events:[
@@ -177,6 +177,7 @@ function chooseHeir(){
 function possibleChildId(){
   const id="c_child_"+Date.now().toString(36),mother=char(ruler().spouse);
   WORLD.characters[id]={id,name:"Child of House "+ruler().dynasty.replace("House ",""),age:0,sex:Math.random()<.5?"m":"f",dynasty:ruler().dynasty,title:"Infant",martial:3,diplomacy:3,stewardship:3,intrigue:3,learning:3,traits:[Math.random()<.5?"Temperate":"Curious"],opinion:60,alive:true,spouse:null,father:S.rulerId,mother:mother?.id||null};
+  S.customCharacters[id]=WORLD.characters[id];
   return id
 }
 function familyTick(){

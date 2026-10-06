@@ -2,7 +2,6 @@
 
 const SAVE12="dynasty_realms_save_v12";
 const baseSync12=syncWorldState;
-const baseReset12=reset;
 const baseRenderDiplomacy12=renderDiplomacy;
 
 function loadLatest12(){
@@ -38,7 +37,6 @@ function renderDiplomacy(){
 function syncWorldState(){baseSync12();S.version=12}
 function saveSilent(){syncWorldState();try{localStorage.setItem(SAVE12,JSON.stringify(S))}catch(e){}}
 function reset(){
-  baseReset12();
   [SAVE12,"dynasty_realms_save_v11","dynasty_realms_save_v10","dynasty_realms_save_v09","dynasty_realms_save_v08","dynasty_realms_save_v07","dynasty_realms_save_v06","dynasty_realms_save_v05","dynasty_realms_save_v03","dynasty_realms_save_v02"].forEach(k=>localStorage.removeItem(k));
   location.reload();
 }

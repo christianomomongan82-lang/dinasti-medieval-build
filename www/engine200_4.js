@@ -71,7 +71,7 @@ function monthTick(){
  S.month++;if(S.month>12){S.month=1;S.year++}
  const own=WORLD.counties.filter(c=>c.holder===S.rulerId),vass=WORLD.counties.filter(c=>WORLD.duchies.find(d=>d.id===c.duchy)?.holder===S.rulerId);
  let income=own.reduce((n,c)=>n+c.tax*(1+c.dev*.025),0)+vass.reduce((n,c)=>n+c.tax*.25,0);S.gold+=income-3;
- own.forEach(c=>{c.food=clamp(c.food+(c.terrain==='plains'?3:1.5)-c.population*.003,0,150);c.population=Math.max(30,c.population+(c.food>55?Math.floor(c.population*.006):-Math.floor(c.population*.003));c.prosperity=clamp(c.prosperity+(c.food>60?.6:-.8),0,100)});
+ own.forEach(c=>{c.food=clamp(c.food+(c.terrain==='plains'?3:1.5)-c.population*.003,0,150);c.population=Math.max(30,c.population+(c.food>55?Math.floor(c.population*.006):-Math.floor(c.population*.003)));c.prosperity=clamp(c.prosperity+(c.food>60?.6:-.8),0,100)});
  S.army.supply=clamp(S.army.supply-(S.army.location===S.selected?1.5:3),0,100);S.army.fatigue=clamp(S.army.fatigue-(S.army.location===S.selected?1:0),0,100);S.levies=Math.min(S.troopCap,Math.floor(S.levies+income*.45));S.stress=clamp(S.stress+(S.gold<20?2:-.3),0,100);
  if(S.month%12===0)log('A new year begins. The realm has earned '+Math.floor(income*12)+' gold in annual revenue.');
  if(S.month%3===0){WORLD.chars[ruler().id].age+=.01}

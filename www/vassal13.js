@@ -4,7 +4,6 @@ const baseMonthlyTick13=monthlyTick;
 const baseRenderRealm13=renderRealm;
 const baseRenderDiplomacy13=renderDiplomacy;
 const baseSync13=syncWorldState;
-const baseReset13=reset;
 
 function vassalInfo13(id){
   const c=char(id);if(!c)return null;
@@ -55,7 +54,7 @@ const LEGACY_MONTHLY_WAR_13=monthlyWar;
 function monthlyWar(w){if(w?.kind==="independence")return processIndependenceWar13(w);return LEGACY_MONTHLY_WAR_13(w)}
 function syncWorldState(){baseSync13();S.version=13}
 function saveSilent(){syncWorldState();try{localStorage.setItem(SAVE13,JSON.stringify(S))}catch(e){}}
-function reset(){baseReset13();localStorage.removeItem(SAVE13);localStorage.removeItem("dynasty_realms_save_v12");location.reload()}
+function reset(){[SAVE13,"dynasty_realms_save_v12","dynasty_realms_save_v11","dynasty_realms_save_v10","dynasty_realms_save_v09","dynasty_realms_save_v08","dynasty_realms_save_v07","dynasty_realms_save_v06","dynasty_realms_save_v05","dynasty_realms_save_v03","dynasty_realms_save_v02"].forEach(k=>localStorage.removeItem(k));location.reload()}
 function initVassal13(){S.independenceFactions=S.independenceFactions&&typeof S.independenceFactions==="object"?S.independenceFactions:{};S.vassalHistory=Array.isArray(S.vassalHistory)?S.vassalHistory:[]}
 function processVassalPolitics13(){
   allVassals13(S.rulerId).forEach(v=>{
